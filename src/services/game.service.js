@@ -3,7 +3,9 @@ import Session from '../models/session.model.js';
 import Result from '../models/result.model.js';
 import User from '../models/user.model.js';
 import { assessRun } from './integrity.service.js';
-import { analyzeKeystrokes } from './keystroke.service.js';
+import { replayRun, computeResults, normaliseRules, publicRules } from './run-engine.js';
+import { boundedElapsedMs, replayOf } from './run.service.js';
+import { DEFAULT_RULES } from '../config/gameplay.js';
 import { recordDailyFinish } from './daily.service.js';
 import { recordPlayDay, syncAchievements } from './achievement.service.js';
 import { recordPracticeResult } from './learn.service.js';
@@ -15,6 +17,9 @@ import { isCasualCategory, pickPassage } from './text-library.service.js';
 // Preset categories used to bucket stats. Values outside these are 'custom'.
 const PRESET_TIMES = [30, 60, 90, 120];
 const PRESET_WORD_COUNTS = [25, 50, 75, 100];
+
+// Fields that reset whenever a session gets new text: no keys, no start yet.
+const FRESH_RUN = Object.freeze({ startedAt: null, keys: [], keyCount: 0, leadMs: 0 });
 
 /**
  * Picks the stat bucket key for a numeric setting.
@@ -44,20 +49,15 @@ export const generateSessionId = () => {
 };
 
 /**
- * Validates client-supplied timing against the session's configured max time.
- * Both timestamps are client-clock values, so the delta is immune to clock skew,
- * but we still bound it so impossible scores can't be fabricated.
+ * Checks the run duration a client reports when finishing. It is bounded by
+ * the server's own clock later (run.service.js); this only rejects values no
+ * honest client sends.
  */
-export const validateGameTiming = (startTime, endTime, timeMax = 120) => {
-  if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
-    return { ok: false, error: 'Invalid game timing' };
-  }
-  const elapsedMs = endTime - startTime;
+export const validateElapsed = (elapsedMs, timeMax = 120) => {
+  if (!Number.isFinite(elapsedMs)) return { ok: false, error: 'Invalid game timing' };
   const minMs = 1000; // at least one second of active play
   const maxMs = (timeMax + 60) * 1000; // generous slack beyond the timer
-  if (elapsedMs < minMs || elapsedMs > maxMs) {
-    return { ok: false, error: 'Invalid elapsed time' };
-  }
+  if (elapsedMs < minMs || elapsedMs > maxMs) return { ok: false, error: 'Invalid elapsed time' };
   return { ok: true, elapsedMs };
 };
 
@@ -89,108 +89,14 @@ export const generateText = (gameMode, wordCount, punctuationEnabled, numbersEna
 };
 
 /**
- * Calculates final game results from client-submitted data
- * Server recalculates everything to prevent cheating
+ * Scores a run from its keystroke log. The only scoring path: every number a
+ * player sees at the end of a run comes from here (services/run-engine.js).
+ * @returns {{ replay: object, results: object }}
  */
-export const calculateResults = (session, typedText, startTime, endTime, afkTime = 0, afkPeriods = 0, performance = [], penalty = 0, rawKeystrokes = 0) => {
-  let serverMistakes = 0;
-  let serverSuccesses = 0;
-
-  const typedLength = typedText ? typedText.length : 0;
-  for (let i = 0; i < typedLength; i++) {
-    if (i < session.text.length && typedText[i] === session.text[i]) {
-      serverSuccesses++;
-    } else {
-      serverMistakes++;
-    }
-  }
-
-  const elapsedMs = (endTime && startTime) ? (endTime - startTime) : 1000;
-  const elapsedSeconds = Math.max(elapsedMs / 1000, 1);
-
-  // If rawKeystrokes is provided by the client, it represents all forward typing strokes.
-  // Use it to calculate true accuracy, preventing cheating via backspaces.
-  const totalTyped = rawKeystrokes > 0 ? rawKeystrokes : (serverSuccesses + serverMistakes);
-  const calculatedMistakes = rawKeystrokes > 0 ? Math.max(0, rawKeystrokes - serverSuccesses) : serverMistakes;
-  const accuracy = totalTyped > 0 ? (serverSuccesses / totalTyped) * 100 : 0;
-
-  const currentText = typedText || '';
-  const rawChars = currentText.length;
-  
-  const correctChars = serverSuccesses;
-
-  const cpm = Math.floor(correctChars * (60 / elapsedSeconds)) || 0;
-  const wpm = Math.floor(cpm / 5) || 0;
-  const rawWpm = elapsedSeconds > 0 ? Math.floor((rawChars / 5) / (elapsedSeconds / 60)) || 0 : 0;
-
-  const speedMultiplier = wpm / 10;
-  const accuracyDecimal = accuracy / 100;
-
-  const requiredWPM = (session.totalWords * 60) / session.timeMax;
-  const difficultyFactor = Math.min(Math.max(requiredWPM / 40, 0.25), 2.0);
-
-  // Use exponential accuracy (cubed) to heavily penalize low accuracy
-  // This rewards precision: 90% acc becomes 0.72 multiplier, 50% becomes 0.125
-  const accuracyFactor = Math.pow(accuracyDecimal, 3);
-  const finalScore = Math.max(0, Math.round(serverSuccesses * speedMultiplier * accuracyFactor * difficultyFactor) - (penalty || 0));
-
-  const completionPercentage = session.text.length > 0
-    ? Math.min((typedLength / session.text.length) * 100, 100)
-    : 0;
-
-  // Calculate remaining time (in seconds)
-  const remainingTime = Math.max(0, session.timeMax - Math.floor(elapsedSeconds));
-
-  // Convert afkTime from milliseconds to seconds (preserve decimals)
-  const afkTimeSeconds = afkTime / 1000;
-
-  // Calculate consistency based on standard deviation of WPM samples
-  let consistency = 0;
-  if (performance && performance.length > 0) {
-    const wpmValues = performance.map(p => p.rawWpm);
-    // Filter out initial ramp-up samples if needed, but for now we take all
-    if (wpmValues.length > 0) {
-      const mean = wpmValues.reduce((a, b) => a + b, 0) / wpmValues.length;
-
-      if (mean > 0) {
-        const variance = wpmValues.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / wpmValues.length;
-        const stdDev = Math.sqrt(variance);
-        // Coefficient of Variation (CV) = StdDev / Mean
-        // Consistency = 100 - (CV * 100)
-        // Example: Mean 60, StdDev 6 -> CV 0.1 -> Consistency 90%
-        const cv = stdDev / mean;
-        consistency = Math.max(0, 100 - (cv * 100));
-      }
-    }
-  }
-
-  // Characters never reached in the source text (MonkeyType-style "missed").
-  const missedChars = Math.max(0, session.text.length - typedLength);
-
-  // Highest WPM reached during the test, from performance samples.
-  const highestWpm = performance && performance.length > 0
-    ? Math.max(...performance.map(p => p.wpm || 0))
-    : wpm;
-
-  return {
-    score: finalScore,
-    wpm,
-    rawWpm,
-    cpm,
-    highestWpm,
-    accuracy: parseFloat(accuracy.toFixed(2)),
-    mistakes: calculatedMistakes,
-    successes: serverSuccesses,
-    missed: missedChars,
-    elapsedTime: Math.floor(elapsedSeconds),
-    completionPercentage: parseFloat(completionPercentage.toFixed(2)),
-    totalWords: session.totalWords,
-    difficultyFactor: parseFloat(difficultyFactor.toFixed(2)),
-    remainingTime,
-    afkTime: afkTimeSeconds,
-    afkPeriods,
-    consistency: parseFloat(consistency.toFixed(2))
-  };
+export const scoreRun = (run, elapsedMs) => {
+  const replay = replayOf(run);
+  const elapsed = boundedElapsedMs(run, elapsedMs, replay);
+  return { replay, results: computeResults(run, replay, elapsed, run.leadMs || 0) };
 };
 
 /**
@@ -212,6 +118,10 @@ export const getState = (session) => {
     timeMax: session.timeMax,
     totalWords: session.totalWords,
     textCategory: session.textCategory || DEFAULT_TEXT_CATEGORY,
+    rules: publicRules(session.rules),
+    // Keys the server already holds for this run (resume and progress offsets).
+    keyCount: session.keyCount || 0,
+    startedAt: session.startedAt ? new Date(session.startedAt).getTime() : null,
     passage: session.passage || null,
     dailyDate: session.dailyDate || null,
     practice: session.practice || null,
@@ -231,6 +141,7 @@ export const createSession = async (options = {}, userId = null) => {
     punctuationEnabled = false,
     numbersEnabled = false,
     textCategory = DEFAULT_TEXT_CATEGORY,
+    rules = DEFAULT_RULES,
     persist = false,
     clientText,
     clientTotalWords,
@@ -258,8 +169,9 @@ export const createSession = async (options = {}, userId = null) => {
     totalWords,
     textCategory,
     passage,
+    rules: normaliseRules(rules),
     textSource: clientText ? 'client' : 'server',
-    startedAt: null,
+    ...FRESH_RUN,
     dailyDate: null,
     practice: null,
     raceCode: null,
@@ -380,7 +292,9 @@ export const startDailySession = async (userId, challenge) => {
     numbersEnabled: challenge.numbersEnabled,
     textSource: 'server',
     passage: null,
-    startedAt: null,
+    // Everyone plays a daily under the same rules.
+    rules: { ...DEFAULT_RULES },
+    ...FRESH_RUN,
     dailyDate: challenge.date,
     practice: null,
     raceCode: null,
@@ -415,7 +329,7 @@ export const startPracticeSession = async (userId, { text, totalWords }, practic
     numbersEnabled: false,
     textSource: 'client',
     passage: null,
-    startedAt: null,
+    ...FRESH_RUN,
     dailyDate: null,
     practice,
     raceCode: null,
@@ -447,6 +361,8 @@ export const startRaceSession = async (userId, { code, text, totalWords, wordCou
     numbersEnabled: false,
     textSource: 'server',
     passage: null,
+    rules: { ...DEFAULT_RULES },
+    ...FRESH_RUN,
     startedAt: new Date(startAt),
     dailyDate: null,
     practice: null,
@@ -458,77 +374,68 @@ export const startRaceSession = async (userId, { code, text, totalWords, wordCou
 };
 
 /**
- * Stamps the server clock at the player's first keystroke. Idempotent: only
- * the first call for an in-progress session counts, so a client can't push
- * its start later by calling again.
+ * Ends a run: scores it from its keystroke log and, for a signed-in player,
+ * saves the result and updates stats, badges, daily and race state.
+ *
+ * @param {object} run           Session document or guest run (text, keys, rules, timing)
+ * @param {object} input
+ * @param {string} input.typedText   what the client shows as typed (checked against the replay)
+ * @param {number} input.elapsedMs   client-measured run duration
+ * @param {string|null} [input.userId]
+ * @param {boolean} [input.migrated] a guest run saved after signing in
  */
-export const beginSession = async (userId) => {
-  const session = await getSessionByUserId(userId);
-  if (!session || !session.incomplete) return null;
-  if (session.startedAt) return session;
-  return await Session.findOneAndUpdate(
-    { _id: session._id, startedAt: null },
-    { $set: { startedAt: new Date() } },
-    { new: true }
-  ) || session;
-};
+export const endGame = async (run, { typedText = '', elapsedMs, userId = null, migrated = false }) => {
+  const { replay, results } = scoreRun(run, elapsedMs);
 
-/**
- * Ends a game and saves the result
- * Creates Result first, then updates Session with resultsId
- */
-export const endGame = async (session, typedText, startTime, endTime, userId = null, afkTime = 0, afkPeriods = 0, performance = [], penalty = 0, rawKeystrokes = 0, migrated = false, keystrokes = null) => {
-  const results = calculateResults(session, typedText, startTime, endTime, afkTime, afkPeriods, performance, penalty, rawKeystrokes);
-
-  // If no authenticated user, do not persist anything — just return computed results
+  // Guests: nothing is persisted.
   if (!userId) {
     return results;
   }
 
-  const keystrokeAnalysis = keystrokes ? analyzeKeystrokes(keystrokes, session.text) : null;
-
-  // Sessions without a textSource are in-memory ones built from client data
-  // (guest migration), so they count as client text.
+  // Integrity compares the client's text with the full log (also keys the
+  // display accepted just past a penalised deadline it hadn't heard about).
+  const full = replayRun(run.text, run.keys, run.rules);
+  const casualText = run.gameMode === 'phrases' && !!run.passage && isCasualCategory(run.passage.category);
   const integrity = assessRun({
-    textSource: session.textSource || 'client',
-    casualText: session.gameMode === 'phrases' && !!session.passage && isCasualCategory(session.passage.category),
-    serverStartedAt: session.startedAt || null,
+    textSource: run.textSource || 'client',
+    casualText,
+    serverStartedAt: run.startedAt || null,
     serverEndedAt: new Date(),
-    clientElapsedMs: endTime - startTime,
+    clientElapsedMs: elapsedMs,
     wpm: results.wpm,
     rawWpm: results.rawWpm,
-    textLength: session.text.length,
-    performance,
-    typedText: typedText || '',
-    keystrokes: keystrokeAnalysis,
+    textLength: run.text.length,
+    typedText,
+    keystrokes: { ...full, replayed: full.typed },
   });
   results.ranked = integrity.ranked;
   results.integrityFlags = integrity.flags;
 
-  // Authenticated user: persist result and update session if present in DB
+  const { wordStats, ...stored } = results;
   const gameResult = new Result({
-    ...results,
+    ...stored,
     integrityVersion: integrity.integrityVersion,
-    // Only a log that replays cleanly is worth keeping for the error map.
-    ...(keystrokeAnalysis?.valid && keystrokeAnalysis.replayed === (typedText || '')
+    ...(replay.valid
       ? {
-          keystrokes,
-          keyPresses: keystrokeAnalysis.keyPresses,
-          keyErrors: keystrokeAnalysis.keyErrors,
-          digraphErrors: keystrokeAnalysis.digraphErrors,
+          keystrokes: run.keys,
+          keyPresses: replay.keyPresses,
+          keyErrors: replay.keyErrors,
+          digraphErrors: replay.digraphErrors,
         }
       : {}),
-    gameMode: session.gameMode,
-    wordCount: session.wordCount,
-    timeMax: session.timeMax,
-    modifiers: modifiersOf(session),
-    textCategory: session.passage?.category || null,
-    dailyDate: session.dailyDate || null,
-    performance: performance || [],
+    rules: normaliseRules(run.rules),
+    leadMs: run.leadMs || 0,
+    gameMode: run.gameMode,
+    wordCount: run.wordCount,
+    timeMax: run.timeMax,
+    modifiers: modifiersOf(run),
+    textCategory: run.passage?.category || null,
+    dailyDate: run.dailyDate || null,
     migrated: !!migrated,
-    userId: userId || session.userId || null,
-    sessionId: session._id || null
+    userId: userId || run.userId || null,
+    sessionId: run._id || null
   });
+  const session = run;
 
   const savedResult = await gameResult.save();
 
@@ -660,9 +567,8 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
   if (session._id) {
     // session already exists in DB — update it
     await updateSession(session._id, {
-      isTyping: false,
       resultsId: savedResult._id,
-      typedText: typedText || '',
+      typedText: replay.typed,
       incomplete: false,
       dailyDate: null,
       practice: null,
@@ -674,7 +580,10 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
       const sessionData = {
         userId: userId || null,
         text: session.text,
-        typedText: typedText || '',
+        typedText: replay.typed,
+        keys: session.keys,
+        keyCount: session.keys.length,
+        rules: normaliseRules(session.rules),
         gameMode: session.gameMode,
         wordCount: session.wordCount,
         punctuationEnabled: session.punctuationEnabled || false,
@@ -729,6 +638,7 @@ export const resetSession = async (sessionId, options = {}) => {
   const effectiveNumbers = overrides.numbersEnabled !== undefined ? overrides.numbersEnabled : session.numbersEnabled;
   const effectiveTimeMax = overrides.timeMax !== undefined ? overrides.timeMax : session.timeMax;
   const effectiveCategory = overrides.textCategory !== undefined ? overrides.textCategory : (session.textCategory || DEFAULT_TEXT_CATEGORY);
+  const effectiveRules = normaliseRules({ ...(session.rules?.toObject?.() ?? session.rules ?? {}), ...(overrides.rules || {}) });
 
   let text, totalWords, passage = null;
   if (overrides.clientText) {
@@ -756,8 +666,9 @@ export const resetSession = async (sessionId, options = {}) => {
     timeMax: effectiveTimeMax,
     textCategory: effectiveCategory,
     passage,
+    rules: effectiveRules,
     textSource: overrides.clientText ? 'client' : 'server',
-    startedAt: null,
+    ...FRESH_RUN,
     dailyDate: null,
     practice: null,
     raceCode: null,
@@ -772,10 +683,19 @@ export const updateSettings = async (sessionId, settings) => {
   const session = await getSession(sessionId);
   if (!session) return null;
 
-  const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory } = settings;
+  const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, rules } = settings;
 
   let textChanged = false;
   const updates = {};
+
+  if (rules !== undefined) {
+    const next = normaliseRules({ ...(session.rules?.toObject?.() ?? session.rules ?? {}), ...rules });
+    const prev = normaliseRules(session.rules);
+    if (JSON.stringify(next) !== JSON.stringify(prev)) {
+      // Keys already typed were judged under the old rules: start over.
+      Object.assign(updates, { rules: next, typedText: '', incomplete: true }, FRESH_RUN);
+    }
+  }
 
   if (gameMode !== undefined && gameMode !== session.gameMode) {
     updates.gameMode = gameMode;
@@ -828,7 +748,7 @@ export const updateSettings = async (sessionId, settings) => {
     updates.typedText = '';
     updates.totalWords = totalWords;
     updates.textSource = 'server';
-    updates.startedAt = null;
+    Object.assign(updates, FRESH_RUN);
     updates.currentIndex = 0;
     updates.mistakes = 0;
     updates.successes = 0;
@@ -847,37 +767,28 @@ export const updateSettings = async (sessionId, settings) => {
 };
 
 /**
- * Adopts a guest game into an authenticated user's session so the player can
- * continue (or persist) the work they did before signing up / signing in.
+ * Adopts a guest's in-progress run as the player's session after signing in,
+ * keys and clock included, so the countdown and typed progress carry on.
+ * Guest text counts as client text: the run is saved but never ranked.
  */
-export const migrateSession = async (userId, payload) => {
-  const {
-    text,
-    typedText = '',
-    totalWords,
-    gameMode,
-    wordCount,
-    timeMax,
-    timeLeft,
-    punctuationEnabled,
-    numbersEnabled,
-  } = payload;
-
-  if (!text) return null;
-
+export const adoptGuestRun = async (userId, guest) => {
   const updates = {
-    text,
-    typedText,
-    totalWords,
-    gameMode,
-    wordCount,
-    timeMax,
-    timeLeft: typeof timeLeft === 'number' ? timeLeft : timeMax,
-    punctuationEnabled,
-    numbersEnabled,
+    text: guest.text,
+    typedText: guest.typedText || '',
+    totalWords: guest.totalWords,
+    gameMode: guest.gameMode,
+    wordCount: guest.wordCount,
+    timeMax: guest.timeMax,
+    punctuationEnabled: guest.punctuationEnabled,
+    numbersEnabled: guest.numbersEnabled,
+    textCategory: guest.textCategory || DEFAULT_TEXT_CATEGORY,
+    passage: guest.passage || null,
+    rules: normaliseRules(guest.rules),
     textSource: 'client',
-    passage: null,
-    startedAt: null,
+    keys: [...guest.keys],
+    keyCount: guest.keys.length,
+    leadMs: 0,
+    startedAt: guest.startedAt || null,
     dailyDate: null,
     practice: null,
     raceCode: null,
@@ -886,21 +797,11 @@ export const migrateSession = async (userId, payload) => {
   };
 
   let session = await getSessionByUserId(userId);
-  let updated;
-  if (session) {
-    updated = await updateSession(session._id, updates);
-  } else {
-    const created = await createSession(
-      { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, persist: true },
-      userId
-    );
-    updated = await updateSession(created._id, updates);
+  if (!session) {
+    session = await createSession({ ...updates, persist: true }, userId);
   }
-
-  return {
-    ...getState(updated),
-    sessionId: updated._id.toString(),
-  };
+  const updated = await updateSession(session._id, updates);
+  return { ...getState(updated), sessionId: updated._id.toString() };
 };
 
 /**

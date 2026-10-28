@@ -1,4 +1,5 @@
 import { TEXT_CATEGORIES } from '../config/texts.js';
+import { DIFFICULTIES, STOP_ON_ERROR } from '../config/gameplay.js';
 
 /**
  * Input rules for account fields. Kept as plain functions returning an error
@@ -84,7 +85,7 @@ const isIntIn = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
  * defaults. Returns `{ error }` or `{ settings }`.
  */
 export const parseGameSettings = (body = {}) => {
-  const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, clientText, clientTotalWords } = body || {};
+  const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, rules, clientText, clientTotalWords } = body || {};
   const settings = {};
 
   if (gameMode !== undefined) {
@@ -98,6 +99,18 @@ export const parseGameSettings = (body = {}) => {
   if (timeMax !== undefined) {
     if (!isIntIn(timeMax, TIME_MAX_MIN, TIME_MAX_MAX)) return { error: `Time limit must be ${TIME_MAX_MIN}-${TIME_MAX_MAX} seconds` };
     settings.timeMax = timeMax;
+  }
+  if (rules !== undefined) {
+    if (!rules || typeof rules !== 'object' || Array.isArray(rules)) return { error: 'Invalid rules' };
+    const { difficulty, stopOnError, spaceSkips } = rules;
+    if (difficulty !== undefined && !DIFFICULTIES.includes(difficulty)) return { error: 'Invalid difficulty' };
+    if (stopOnError !== undefined && !STOP_ON_ERROR.includes(stopOnError)) return { error: 'Invalid stop-on-error setting' };
+    if (spaceSkips !== undefined && typeof spaceSkips !== 'boolean') return { error: 'spaceSkips must be true or false' };
+    settings.rules = {
+      ...(difficulty !== undefined && { difficulty }),
+      ...(stopOnError !== undefined && { stopOnError }),
+      ...(spaceSkips !== undefined && { spaceSkips }),
+    };
   }
   if (textCategory !== undefined) {
     if (!TEXT_CATEGORIES.includes(textCategory)) return { error: 'Invalid text category' };

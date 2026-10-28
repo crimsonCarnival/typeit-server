@@ -201,7 +201,9 @@ describe('race socket message validation', () => {
   it('accepts known shapes and rejects anything else', () => {
     assert.equal(_validShape({ type: 'create', wordCount: 25, name: 'x', isPrivate: true }), true);
     assert.equal(_validShape({ type: 'create', wordCount: '25' }), false);
-    assert.equal(_validShape({ type: 'progress', index: 3, extra: 1 }), false);
+    assert.equal(_validShape({ type: 'ready', ready: true, extra: 1 }), false);
+    // Progress comes from POST /game/progress (the server's replay), not the socket.
+    assert.equal(_validShape({ type: 'progress', index: 3 }), false);
     assert.equal(_validShape({ type: 'join', code: 'x'.repeat(101) }), false);
     assert.equal(_validShape({ type: 'nope' }), false);
     assert.equal(_validShape(null), false);
@@ -306,7 +308,7 @@ describe('race socket', () => {
     await waitFor(a.inbox, (m) => m.type === 'ready');
     await waitFor(b.inbox, (m) => m.type === 'ready');
 
-    a.ws.send(JSON.stringify({ type: 'progress', index: 1, bogus: true }));
+    a.ws.send(JSON.stringify({ type: 'ready', ready: true, bogus: true }));
     await waitFor(a.inbox, (m) => m.type === 'error' && m.code === 'bad-message');
 
     a.ws.send(JSON.stringify({ type: 'create', name: 'Test', wordCount: 25, isPrivate: true }));

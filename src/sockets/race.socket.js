@@ -20,7 +20,6 @@ const SHAPES = {
   ready: { ready: 'boolean' },
   cancel: {},
   startNow: {},
-  progress: { index: 'number', accuracy: 'number?' },
   invite: { userId: 'string' },
   list: {},
 };

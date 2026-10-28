@@ -1,5 +1,5 @@
 import Result from '../models/result.model.js';
-import { INTEGRITY_VERSION } from '../config/integrity.js';
+import { MIN_RANKED_INTEGRITY_VERSION } from '../config/integrity.js';
 import { RANKINGS_CACHE_TTL_MS, REGION_BY_TZ_AREA } from '../config/rankings.js';
 
 /** Maps an IANA timezone to a ranking region, or null when it has none. */
@@ -45,7 +45,7 @@ export const clearRankingsCache = () => boardCache.clear();
 const loadBoard = async ({ period, mode, time, modifiers }, now) => {
   const match = {
     ranked: true,
-    integrityVersion: { $gte: INTEGRITY_VERSION },
+    integrityVersion: { $gte: MIN_RANKED_INTEGRITY_VERSION[mode] ?? 3 },
     userId: { $ne: null },
     gameMode: mode,
     timeMax: time,

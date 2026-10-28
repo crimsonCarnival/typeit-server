@@ -65,6 +65,34 @@ const sessionSchema = new Schema(
       enum: ['server', 'client'],
       default: 'server',
     },
+    // Typing rules for this run (config/gameplay.js).
+    rules: {
+      type: new Schema(
+        {
+          difficulty: { type: String, enum: ['normal', 'hardcore'], default: 'normal' },
+          stopOnError: { type: String, enum: ['off', 'letter', 'word'], default: 'off' },
+          spaceSkips: { type: Boolean, default: false },
+        },
+        { _id: false }
+      ),
+      default: () => ({}),
+    },
+    // Keystroke log of the run in progress, streamed by POST /game/progress
+    // as [gapMs, char] pairs. `keyCount` mirrors its length so appends can be
+    // made conditional on what the client last saw.
+    keys: {
+      type: [Schema.Types.Mixed],
+      default: [],
+    },
+    keyCount: {
+      type: Number,
+      default: 0,
+    },
+    // Time from the run's start to its first key (races start before anyone types).
+    leadMs: {
+      type: Number,
+      default: 0,
+    },
     // Server clock at the first keystroke (POST /game/begin); cleared on reset.
     startedAt: {
       type: Date,

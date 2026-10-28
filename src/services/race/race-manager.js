@@ -142,12 +142,6 @@ const actions = {
     withRoom(user, (room) => startNow(room, user.userId, now), now);
   },
 
-  progress(user, { index, accuracy }, now) {
-    const room = rooms.get(roomOf.get(user.userId));
-    // Progress is frequent; failures are silently dropped.
-    if (room && !updateProgress(room, user.userId, { index, accuracy }, now)) broadcast(room, now);
-  },
-
   async invite(user, { userId: target }) {
     if (typeof target !== 'string' || !mongoose.isValidObjectId(target)) return error(user.userId, 'bad-invite');
     const code = roomOf.get(user.userId);
@@ -262,6 +256,16 @@ const persistRace = async (room) => {
     console.error('[race] could not persist race', room.code, err?.message);
   }
 };
+
+// Live progress from POST /game/progress: the server's replay of the racer's
+// keys, never a position the client claims.
+gameEvents.on('run:progress', ({ userId, code, index, accuracy }) => {
+  const room = rooms.get(code);
+  if (!room || roomOf.get(userId) !== code) return;
+  const now = Date.now();
+  // Progress is frequent; failures are silently dropped.
+  if (!updateProgress(room, userId, { index, accuracy }, now)) broadcast(room, now);
+});
 
 // A finished run from POST /game/end (see game.service endGame).
 gameEvents.on('run:finished', ({ userId, session, results, resultId, ranked }) => {
