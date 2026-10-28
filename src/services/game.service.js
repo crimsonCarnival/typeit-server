@@ -17,6 +17,14 @@ const PRESET_WORD_COUNTS = [25, 50, 75, 100];
 const bucketKey = (value, presets) =>
   presets.includes(value) ? String(value) : 'custom';
 
+/** Single modifier label for a session, as stored on results and ranked on. */
+const modifiersOf = (session) => {
+  if (session.punctuationEnabled && session.numbersEnabled) return 'both';
+  if (session.punctuationEnabled) return 'punctuation';
+  if (session.numbersEnabled) return 'numbers';
+  return 'none';
+};
+
 /**
  * Strips punctuation characters from text.
  */
@@ -406,6 +414,7 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
     gameMode: session.gameMode,
     wordCount: session.wordCount,
     timeMax: session.timeMax,
+    modifiers: modifiersOf(session),
     performance: performance || [],
     migrated: !!migrated,
     userId: userId || session.userId || null,

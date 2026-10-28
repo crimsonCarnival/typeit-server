@@ -54,6 +54,12 @@ const resultSchema = new Schema(
     wordCount: {
       type: Number,
     },
+    // Modifier combination the run was played with; rankings never mix them.
+    modifiers: {
+      type: String,
+      enum: ['none', 'punctuation', 'numbers', 'both'],
+      default: 'none',
+    },
     timeMax: {
       type: Number,
       required: true,
@@ -152,6 +158,8 @@ const resultSchema = new Schema(
 resultSchema.index({ score: -1 });
 resultSchema.index({ wpm: -1 });
 resultSchema.index({ gameMode: 1, score: -1 });
+// Rankings: best ranked run per player within one board.
+resultSchema.index({ ranked: 1, gameMode: 1, timeMax: 1, modifiers: 1, wpm: -1 });
 
 const Result = mongoose.model('Result', resultSchema);
 

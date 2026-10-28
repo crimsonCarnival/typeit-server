@@ -4,6 +4,7 @@ import authRoutes from './auth.routes.js';
 import userRoutes from './user.routes.js';
 import adminRoutes from './admin.routes.js';
 import statsRoutes from './stats.routes.js';
+import rankingsRoutes from './rankings.routes.js';
 
 const router = express.Router();
 
@@ -12,6 +13,7 @@ router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/admin', adminRoutes);
 router.use('/stats', statsRoutes);
+router.use('/rankings', rankingsRoutes);
 
 router.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

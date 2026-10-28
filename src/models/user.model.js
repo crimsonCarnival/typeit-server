@@ -103,6 +103,10 @@ const userSchema = new Schema(
         type: Number,
         default: 0,
       },
+      raceWins: {
+        type: Number,
+        default: 0,
+      },
       byTime: {
         type: Map,
         of: bucketStatsSchema,
