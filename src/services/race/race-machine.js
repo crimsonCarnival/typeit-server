@@ -1,9 +1,14 @@
 import {
-  RACE_COUNTDOWN_MS,
-  RACE_MAX_PLAYERS,
+  RACE_COUNTDOWN_OPTIONS,
+  RACE_DEFAULT_SETTINGS,
   RACE_MIN_PLAYERS,
+  RACE_MODES,
+  RACE_PLAYER_LIMITS,
   RACE_START_NOW_DELAY_MS,
+  RACE_TIMED_GRACE_MS,
   RACE_TIMEOUT_MS,
+  RACE_TIME_LIMITS,
+  RACE_WORD_COUNTS,
 } from '../../config/race.js';
 
 /**
@@ -17,12 +22,39 @@ import {
  *     └── someone unreadies, leaves or cancels
  */
 
-export const createRoom = ({ code, host, name, wordCount, isPrivate, now }) => ({
+/**
+ * Validates host-chosen settings against the allowed values. Missing fields
+ * fall back to `base`. Returns the full settings object, or null if any
+ * provided value isn't allowed.
+ */
+export const normalizeSettings = (input = {}, base = RACE_DEFAULT_SETTINGS) => {
+  const s = { ...base };
+  const pick = (key, allowed) => {
+    if (input[key] === undefined) return true;
+    if (!allowed.includes(input[key])) return false;
+    s[key] = input[key];
+    return true;
+  };
+  const ok =
+    pick('mode', RACE_MODES) &&
+    pick('wordCount', RACE_WORD_COUNTS) &&
+    pick('timeLimit', RACE_TIME_LIMITS) &&
+    pick('maxPlayers', RACE_PLAYER_LIMITS) &&
+    pick('countdownSec', RACE_COUNTDOWN_OPTIONS) &&
+    pick('punctuation', [true, false]) &&
+    pick('numbers', [true, false]);
+  return ok ? s : null;
+};
+
+const countdownMs = (room) => room.countdownSec * 1000;
+const raceTimeoutMs = (room) => (room.mode === 'time' ? room.timeLimit * 1000 + RACE_TIMED_GRACE_MS : RACE_TIMEOUT_MS);
+
+export const createRoom = ({ code, host, name, isPrivate, now, ...settings }) => ({
   code,
   name,
   hostId: host.userId,
   isPrivate: !!isPrivate,
-  wordCount,
+  ...normalizeSettings(settings),
   state: 'lobby',
   players: [newPlayer(host)],
   text: null,
@@ -66,7 +98,7 @@ export const joinRoom = (room, player, now) => {
     return null;
   }
   if (room.state !== 'lobby' && room.state !== 'countdown') return 'already-started';
-  if (room.players.length >= RACE_MAX_PLAYERS) return 'room-full';
+  if (room.players.length >= room.maxPlayers) return 'room-full';
   room.players.push(newPlayer(player));
   // A newcomer isn't ready, so any countdown in progress stops.
   if (room.state === 'countdown') backToLobby(room);
@@ -110,10 +142,28 @@ export const setReady = (room, userId, ready, now) => {
 
   if (room.state === 'lobby' && allReady(room)) {
     room.state = 'countdown';
-    room.startAt = now + RACE_COUNTDOWN_MS;
+    room.startAt = now + countdownMs(room);
   } else if (room.state === 'countdown' && !allReady(room)) {
     backToLobby(room);
   }
+  return null;
+};
+
+/**
+ * Host changes the race settings before it starts. Everyone is unreadied (the
+ * race they agreed to changed), which also stops a running countdown.
+ */
+export const updateSettings = (room, userId, input, now) => {
+  if (room.hostId !== userId) return 'not-host';
+  if (room.state !== 'lobby' && room.state !== 'countdown') return 'already-started';
+  const next = normalizeSettings(input, room);
+  if (!next) return 'bad-settings';
+  if (room.players.length > next.maxPlayers) return 'too-many-players';
+  const { mode, wordCount, timeLimit, maxPlayers, countdownSec, punctuation, numbers } = next;
+  Object.assign(room, { mode, wordCount, timeLimit, maxPlayers, countdownSec, punctuation, numbers });
+  room.players.forEach((p) => { p.ready = false; });
+  backToLobby(room);
+  room.updatedAt = now;
   return null;
 };
 
@@ -142,7 +192,7 @@ export const tick = (room, now) => {
     room.updatedAt = now;
     return 'started';
   }
-  if (room.state === 'racing' && now >= room.startAt + RACE_TIMEOUT_MS) {
+  if (room.state === 'racing' && now >= room.startAt + raceTimeoutMs(room)) {
     finishRace(room, now);
     return 'finished';
   }
@@ -203,9 +253,13 @@ export const recordFinish = (room, userId, result, now) => {
 export const finishRace = (room, now) => {
   room.state = 'finished';
   room.finishedAt = now;
+  // Timed races rank by speed; word races by who crossed the line first.
+  const byOrder = room.mode === 'time'
+    ? (a, b) => b.result.wpm - a.result.wpm || a.finishedAt - b.finishedAt
+    : (a, b) => a.finishedAt - b.finishedAt;
   const finishers = room.players
     .filter((p) => p.finishedAt && p.result?.completed)
-    .sort((a, b) => a.finishedAt - b.finishedAt);
+    .sort(byOrder);
   finishers.forEach((p, i) => { p.place = i + 1; });
   room.winnerId = finishers.find((p) => p.result?.ranked)?.userId ?? null;
 };
@@ -216,7 +270,13 @@ export const publicRoom = (room, now) => ({
   name: room.name,
   hostId: room.hostId,
   isPrivate: room.isPrivate,
+  mode: room.mode,
   wordCount: room.wordCount,
+  timeLimit: room.timeLimit,
+  maxPlayers: room.maxPlayers,
+  countdownSec: room.countdownSec,
+  punctuation: room.punctuation,
+  numbers: room.numbers,
   state: room.state,
   startAt: room.startAt,
   serverNow: now,

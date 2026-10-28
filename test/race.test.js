@@ -17,6 +17,7 @@ import {
   startNow,
   tick,
   updateProgress,
+  updateSettings,
 } from '../src/services/race/race-machine.js';
 import { attachRaceSocket, _validShape } from '../src/sockets/race.socket.js';
 import {
@@ -26,6 +27,7 @@ import {
   RACE_MAX_SOCKETS_PER_USER,
   RACE_SOCKET_PATH,
   RACE_START_NOW_DELAY_MS,
+  RACE_TIMED_GRACE_MS,
   RACE_TIMEOUT_MS,
 } from '../src/config/race.js';
 
@@ -197,10 +199,66 @@ describe('race state machine', () => {
   });
 });
 
+describe('race settings and modes', () => {
+  it('defaults missing settings and rejects values outside the allowed lists', () => {
+    const r = lobby();
+    assert.deepEqual([r.mode, r.maxPlayers, r.countdownSec, r.punctuation], ['words', 4, 5, false]);
+    assert.equal(updateSettings(r, 'u1', { wordCount: 26 }, T0), 'bad-settings');
+    assert.equal(updateSettings(r, 'u1', { mode: 'sprint' }, T0), 'bad-settings');
+  });
+
+  it('lets only the host change settings, and unreadies everyone', () => {
+    const r = lobby(3);
+    for (const id of ['u1', 'u2']) setReady(r, id, true, T0);
+    assert.equal(updateSettings(r, 'u2', { maxPlayers: 8 }, T0), 'not-host');
+    assert.equal(updateSettings(r, 'u1', { maxPlayers: 8, countdownSec: 10 }, T0), null);
+    assert.equal(r.maxPlayers, 8);
+    assert.ok(r.players.every((p) => !p.ready));
+  });
+
+  it('refuses a player limit below the current headcount', () => {
+    const r = lobby(3);
+    assert.equal(updateSettings(r, 'u1', { maxPlayers: 2 }, T0), 'too-many-players');
+  });
+
+  it('honours the room limit and countdown length', () => {
+    const r = lobby(2);
+    updateSettings(r, 'u1', { maxPlayers: 2, countdownSec: 10 }, T0);
+    assert.equal(joinRoom(r, player(3), T0), 'room-full');
+    setReady(r, 'u1', true, T0);
+    setReady(r, 'u2', true, T0);
+    assert.equal(r.startAt, T0 + 10_000);
+  });
+
+  it('cannot change settings once the race started', () => {
+    const r = racing();
+    assert.equal(updateSettings(r, 'u1', { wordCount: 50 }, r.startAt), 'already-started');
+  });
+
+  it('ranks a timed race by WPM and ends at the limit plus grace', () => {
+    const r = lobby(3);
+    updateSettings(r, 'u1', { mode: 'time', timeLimit: 30 }, T0);
+    for (let i = 1; i <= 3; i++) setReady(r, `u${i}`, true, T0);
+    r.text = 'a b c';
+    tick(r, r.startAt);
+    const at = r.startAt + 30_000;
+    recordFinish(r, 'u1', { wpm: 60, accuracy: 95, ranked: true, completed: true }, at);
+    recordFinish(r, 'u2', { wpm: 80, accuracy: 95, ranked: true, completed: true }, at + 500);
+    assert.equal(tick(r, r.startAt + 30_000 + RACE_TIMED_GRACE_MS - 1), null);
+    assert.equal(tick(r, r.startAt + 30_000 + RACE_TIMED_GRACE_MS), 'finished');
+    assert.equal(r.winnerId, 'u2', 'higher WPM wins even though it finished later');
+    assert.equal(r.players.find((p) => p.userId === 'u1').place, 2);
+    assert.equal(r.players.find((p) => p.userId === 'u3').place, null);
+  });
+});
+
 describe('race socket message validation', () => {
   it('accepts known shapes and rejects anything else', () => {
     assert.equal(_validShape({ type: 'create', wordCount: 25, name: 'x', isPrivate: true }), true);
     assert.equal(_validShape({ type: 'create', wordCount: '25' }), false);
+    assert.equal(_validShape({ type: 'create', mode: 'time', timeLimit: 30, maxPlayers: 6, punctuation: true }), true);
+    assert.equal(_validShape({ type: 'settings', countdownSec: 10 }), true);
+    assert.equal(_validShape({ type: 'settings', hostId: 'x' }), false);
     assert.equal(_validShape({ type: 'progress', index: 3, extra: 1 }), false);
     assert.equal(_validShape({ type: 'join', code: 'x'.repeat(101) }), false);
     assert.equal(_validShape({ type: 'nope' }), false);

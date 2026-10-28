@@ -17,7 +17,7 @@ import {
   RACE_MIN_PLAYERS,
   RACE_NAME_MAX_LENGTH,
   RACE_TICK_MS,
-  RACE_WORD_COUNTS,
+  RACE_TIMED_WORDS_PER_SECOND,
 } from '../../config/race.js';
 import {
   cancelCountdown,
@@ -25,12 +25,14 @@ import {
   findPlayer,
   joinRoom,
   leaveRoom,
+  normalizeSettings,
   publicRoom,
   recordFinish,
   setReady,
   startNow,
   tick,
   updateProgress,
+  updateSettings,
 } from './race-machine.js';
 
 /**
@@ -104,11 +106,11 @@ const areFriends = async (a, b) => {
 // ---------------------------------------------------------------- actions
 
 const actions = {
-  create(user, { name, wordCount, isPrivate }, now) {
-    if (!RACE_WORD_COUNTS.includes(wordCount)) return error(user.userId, 'bad-settings');
+  create(user, { name, isPrivate, ...settings }, now) {
+    if (!normalizeSettings(settings)) return error(user.userId, 'bad-settings');
     const roomName = typeof name === 'string' ? name.trim().slice(0, RACE_NAME_MAX_LENGTH) : '';
     detach(user.userId, now);
-    const room = createRoom({ code: newCode(), host: user, name: roomName || `${user.displayName}'s race`, wordCount, isPrivate, now });
+    const room = createRoom({ code: newCode(), host: user, name: roomName || `${user.displayName}'s race`, isPrivate, now, ...settings });
     rooms.set(room.code, room);
     roomOf.set(user.userId, room.code);
     broadcast(room, now);
@@ -126,6 +128,10 @@ const actions = {
     if (err) return error(user.userId, err);
     roomOf.set(user.userId, room.code);
     broadcast(room, now);
+  },
+
+  settings(user, { type: _type, ...settings }, now) {
+    withRoom(user, (room) => updateSettings(room, user.userId, settings, now), now);
   },
 
   leave(user, _msg, now) {
@@ -173,10 +179,21 @@ const actions = {
   list(user) {
     const open = [...rooms.values()]
       .filter((r) => !r.isPrivate && r.state === 'lobby')
-      .map((r) => ({ code: r.code, name: r.name, wordCount: r.wordCount, players: r.players.length }));
+      .map((r) => ({
+        code: r.code,
+        name: r.name,
+        mode: r.mode,
+        wordCount: r.wordCount,
+        timeLimit: r.timeLimit,
+        maxPlayers: r.maxPlayers,
+        players: r.players.length,
+      }));
     sendTo(user.userId, { type: 'rooms', rooms: open });
   },
 };
+
+// Timed races get more text than anyone can finish before the clock runs out.
+const textWords = (room) => (room.mode === 'time' ? room.timeLimit * RACE_TIMED_WORDS_PER_SECOND : room.wordCount);
 
 function withRoom(user, fn, now) {
   const room = rooms.get(roomOf.get(user.userId));
@@ -185,7 +202,7 @@ function withRoom(user, fn, now) {
   if (err) return error(user.userId, err);
   if (room.state === 'countdown' && !room.text) {
     // Pick the text as the countdown starts; it is only revealed at startAt.
-    room.text = generateText('words', room.wordCount, false, false).text;
+    room.text = generateText('words', textWords(room), room.punctuation, room.numbers).text;
   }
   broadcast(room, now);
 }
@@ -227,7 +244,16 @@ const startRace = async (room) => {
   const totalWords = room.text.split(' ').length;
   await Promise.all(
     room.players.map((p) =>
-      startRaceSession(p.userId, { code: room.code, text: room.text, totalWords, wordCount: room.wordCount, startAt: room.startAt })
+      startRaceSession(p.userId, {
+        code: room.code,
+        text: room.text,
+        totalWords,
+        wordCount: room.mode === 'time' ? totalWords : room.wordCount,
+        timeMax: room.mode === 'time' ? room.timeLimit : undefined,
+        punctuation: room.punctuation,
+        numbers: room.numbers,
+        startAt: room.startAt,
+      })
         .catch((err) => console.error('[race] could not prepare session', p.userId, err?.message))
     )
   );
@@ -241,7 +267,9 @@ const persistRace = async (room) => {
       name: room.name,
       hostId: room.hostId,
       isPrivate: room.isPrivate,
+      mode: room.mode,
       wordCount: room.wordCount,
+      timeLimit: room.timeLimit,
       text: room.text,
       startAt: new Date(room.startAt),
       finishedAt: new Date(room.finishedAt),
@@ -270,8 +298,9 @@ const persistRace = async (room) => {
 gameEvents.on('run:finished', ({ userId, session, results, resultId, ranked }) => {
   const room = rooms.get(session.raceCode);
   if (!room) return;
-  // Only a run that covered the whole text counts as crossing the line.
-  const completed = results.completionPercentage >= 100;
+  // A word race is finished by covering the whole text; a timed race by the
+  // clock running out.
+  const completed = room.mode === 'time' || results.completionPercentage >= 100;
   const outcome = recordFinish(room, String(userId), { wpm: results.wpm, accuracy: results.accuracy, ranked, resultId, completed }, Date.now());
   if (outcome === 'finished') void persistRace(room);
   if (outcome === null || outcome === 'finished') broadcast(room);

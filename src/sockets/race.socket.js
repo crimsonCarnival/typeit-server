@@ -9,11 +9,31 @@ import {
   RACE_SOCKET_PATH,
 } from '../config/race.js';
 import { connect, disconnect, handleMessage } from '../services/race/race-manager.js';
+import { publicHandle, publicName } from '../utils/public-identity.js';
 
 // Allowed fields per message type; anything else is rejected before it
 // reaches the race manager.
 const SHAPES = {
-  create: { name: 'string?', wordCount: 'number', isPrivate: 'boolean?' },
+  create: {
+    name: 'string?',
+    isPrivate: 'boolean?',
+    mode: 'string?',
+    wordCount: 'number?',
+    timeLimit: 'number?',
+    maxPlayers: 'number?',
+    countdownSec: 'number?',
+    punctuation: 'boolean?',
+    numbers: 'boolean?',
+  },
+  settings: {
+    mode: 'string?',
+    wordCount: 'number?',
+    timeLimit: 'number?',
+    maxPlayers: 'number?',
+    countdownSec: 'number?',
+    punctuation: 'boolean?',
+    numbers: 'boolean?',
+  },
   join: { code: 'string' },
   leave: {},
   ready: { ready: 'boolean' },
@@ -44,8 +64,8 @@ const authenticate = async (token) => {
   if (!user || user.status !== 'active') throw new Error('inactive');
   return {
     userId: user._id.toString(),
-    username: user.username,
-    displayName: user.displayName || user.username,
+    username: publicHandle(user),
+    displayName: publicName(user),
     avatar: user.avatar || '',
   };
 };
