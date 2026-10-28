@@ -1,5 +1,5 @@
 import { buildDrillText, getErrorMap } from '../services/error-map.service.js';
-import { startDrillSession } from '../services/game.service.js';
+import { startPracticeSession } from '../services/game.service.js';
 import { ERROR_MAP_DEFAULT_RUNS, ERROR_MAP_MAX_RUNS } from '../config/error-map.js';
 
 // A drill target is one key or a two-character digraph from the keys the
@@ -35,7 +35,7 @@ const errorMapController = {
       return res.status(400).json({ success: false, error: 'Invalid drill target' });
     }
     try {
-      const state = await startDrillSession(req.user._id, buildDrillText(target));
+      const state = await startPracticeSession(req.user._id, buildDrillText(target), { kind: 'drill', id: target });
       res.json({ success: true, data: state });
     } catch (err) {
       res.status(500).json({ success: false, error: 'Could not start the drill' });

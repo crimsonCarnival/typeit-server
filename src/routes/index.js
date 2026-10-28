@@ -8,6 +8,7 @@ import rankingsRoutes from './rankings.routes.js';
 import dailyRoutes from './daily.routes.js';
 import achievementsRoutes from './achievements.routes.js';
 import errorMapRoutes from './error-map.routes.js';
+import learnRoutes from './learn.routes.js';
 
 const router = express.Router();
 
@@ -20,6 +21,7 @@ router.use('/rankings', rankingsRoutes);
 router.use('/daily', dailyRoutes);
 router.use('/achievements', achievementsRoutes);
 router.use('/error-map', errorMapRoutes);
+router.use('/learn', learnRoutes);
 
 router.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

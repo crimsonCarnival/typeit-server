@@ -53,6 +53,18 @@ const sessionSchema = new Schema(
       type: Date,
       default: null,
     },
+    // Practice run in progress (never ranked): what it is and which one,
+    // e.g. { kind: 'lesson', id: 'home-left' }. Cleared on reset.
+    practice: {
+      type: new Schema(
+        {
+          kind: { type: String, enum: ['drill', 'lesson', 'common-words', 'list'], required: true },
+          id: { type: String, default: null },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
     // 'YYYY-MM-DD' while this session is playing that day's daily challenge.
     // Any reset or settings change clears it, ending the daily run.
     dailyDate: {

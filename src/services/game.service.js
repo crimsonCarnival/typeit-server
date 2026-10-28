@@ -7,6 +7,7 @@ import { assessRun } from './integrity.service.js';
 import { analyzeKeystrokes } from './keystroke.service.js';
 import { recordDailyFinish } from './daily.service.js';
 import { recordPlayDay, syncAchievements } from './achievement.service.js';
+import { recordPracticeResult } from './learn.service.js';
 import { INTEGRITY_FLAGS } from '../config/integrity.js';
 
 // Preset categories used to bucket stats. Values outside these are 'custom'.
@@ -212,6 +213,7 @@ export const getState = (session) => {
     timeMax: session.timeMax,
     totalWords: session.totalWords,
     dailyDate: session.dailyDate || null,
+    practice: session.practice || null,
     isAuthenticated: !!session.userId
   };
 };
@@ -254,6 +256,7 @@ export const createSession = async (options = {}, userId = null) => {
     textSource: clientText ? 'client' : 'server',
     startedAt: null,
     dailyDate: null,
+    practice: null,
     incomplete: true
   };
 
@@ -372,6 +375,7 @@ export const startDailySession = async (userId, challenge) => {
     textSource: 'server',
     startedAt: null,
     dailyDate: challenge.date,
+    practice: null,
     incomplete: true,
     resultsId: null,
   };
@@ -384,10 +388,11 @@ export const startDailySession = async (userId, challenge) => {
 };
 
 /**
- * Points the player's session at targeted drill text. Drills are practice:
- * the text is marked as client-chosen so drill runs are never ranked.
+ * Points the player's session at practice text (drill, lesson, common words,
+ * custom list). Practice text is marked as client-chosen so these runs are
+ * saved but never ranked; `practice` says what to record when it finishes.
  */
-export const startDrillSession = async (userId, { text, totalWords }) => {
+export const startPracticeSession = async (userId, { text, totalWords }, practice) => {
   let session = await getSessionByUserId(userId);
   if (!session) {
     session = await createSession({ persist: true, gameMode: 'words' }, userId);
@@ -403,6 +408,7 @@ export const startDrillSession = async (userId, { text, totalWords }) => {
     textSource: 'client',
     startedAt: null,
     dailyDate: null,
+    practice,
     incomplete: true,
     resultsId: null,
   });
@@ -481,6 +487,18 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
   });
 
   const savedResult = await gameResult.save();
+
+  const lessonId = session.practice?.kind === 'lesson'
+    ? session.practice.id
+    : session.practice?.kind === 'common-words' ? 'common-words' : null;
+  if (lessonId) {
+    try {
+      const passed = await recordPracticeResult(userId, lessonId, results);
+      results.practice = { kind: session.practice.kind, id: lessonId, passed };
+    } catch (e) {
+      // Progress is best-effort; the run itself is saved.
+    }
+  }
 
   if (session.dailyDate) {
     try {
@@ -592,7 +610,8 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
       resultsId: savedResult._id,
       typedText: typedText || '',
       incomplete: false,
-      dailyDate: null
+      dailyDate: null,
+      practice: null
     });
   } else {
     // No DB session exists for this run; persist one now that we have a result
@@ -681,6 +700,7 @@ export const resetSession = async (sessionId, options = {}) => {
     textSource: overrides.clientText ? 'client' : 'server',
     startedAt: null,
     dailyDate: null,
+    practice: null,
     incomplete: true,
   });
 };
@@ -746,8 +766,9 @@ export const updateSettings = async (sessionId, settings) => {
   }
 
   if (Object.keys(updates).length > 0) {
-    // Changing any setting mid-daily abandons the daily run.
+    // Changing any setting abandons a daily or practice run.
     updates.dailyDate = null;
+    updates.practice = null;
     return await updateSession(sessionId, updates);
   }
 
@@ -786,6 +807,7 @@ export const migrateSession = async (userId, payload) => {
     textSource: 'client',
     startedAt: null,
     dailyDate: null,
+    practice: null,
     incomplete: true,
     resultsId: null,
   };
