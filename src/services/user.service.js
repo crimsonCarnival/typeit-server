@@ -5,6 +5,10 @@ import UserAchievement from '../models/user-achievement.model.js';
 import LessonProgress from '../models/lesson-progress.model.js';
 import WordList from '../models/word-list.model.js';
 import Session from '../models/session.model.js';
+import { USERNAME_PATTERN, publicHandle, publicName } from '../utils/public-identity.js';
+
+/** Replaces a user's names with their public forms (see utils/public-identity.js). */
+const withPublicIdentity = (u) => ({ ...u, username: publicHandle(u), displayName: publicName(u) });
 
 /**
  * Escapes regex-special characters in user input used for pattern matching.
@@ -29,6 +33,10 @@ export const updateProfile = async (userId, updates) => {
     if (updates[key] !== undefined) {
       filteredUpdates[key] = updates[key];
     }
+  }
+
+  if (filteredUpdates.username !== undefined && !USERNAME_PATTERN.test(filteredUpdates.username)) {
+    throw new Error('Username must be 3-20 letters, numbers, dots, dashes or underscores');
   }
 
   // Check if username is taken (if updating username)
@@ -90,15 +98,13 @@ export const searchUsers = async (query, limit = 20) => {
     return [];
   }
 
-  return await User.find({
-    status: 'active',
-    $or: [
-      { username: { $regex: escapeRegex(query), $options: 'i' } },
-      { displayName: { $regex: escapeRegex(query), $options: 'i' } },
-    ],
-  })
+  // Names that are really emails are neither matched nor shown.
+  const match = (field) => ({ $and: [{ [field]: { $regex: escapeRegex(query), $options: 'i' } }, { [field]: { $not: /@/ } }] });
+  const users = await User.find({ status: 'active', $or: [match('username'), match('displayName')] })
     .limit(limit)
-    .select('username displayName avatar stats.highScore stats.bestWpm stats.gamesPlayed');
+    .select('username displayName avatar stats.highScore stats.bestWpm stats.gamesPlayed')
+    .lean();
+  return users.map(withPublicIdentity);
 };
 
 /**
@@ -116,8 +122,8 @@ export const getPublicProfile = async (userId, viewerId = null) => {
 
   return {
     id: user._id,
-    displayName: user.displayName || user.username,
-    username: user.username,
+    displayName: publicName(user),
+    username: publicHandle(user),
     avatar: user.avatar,
     bio: user.bio || '',
     stats: user.stats,
@@ -194,7 +200,7 @@ export const getFollowers = async (userId) => {
     .select('followers')
     .populate('followers', 'username displayName avatar stats.bestWpm');
 
-  return user ? user.followers : [];
+  return user ? user.followers.map((u) => withPublicIdentity(u.toObject())) : [];
 };
 
 /**
@@ -205,5 +211,5 @@ export const getFollowing = async (userId) => {
     .select('following')
     .populate('following', 'username displayName avatar stats.bestWpm');
 
-  return user ? user.following : [];
+  return user ? user.following.map((u) => withPublicIdentity(u.toObject())) : [];
 };

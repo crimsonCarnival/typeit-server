@@ -1,6 +1,7 @@
 import Result from '../models/result.model.js';
 import { INTEGRITY_VERSION } from '../config/integrity.js';
 import { RANKINGS_CACHE_TTL_MS, REGION_BY_TZ_AREA } from '../config/rankings.js';
+import { publicHandle, publicName } from '../utils/public-identity.js';
 
 /** Maps an IANA timezone to a ranking region, or null when it has none. */
 export const regionFromTimezone = (timezone) => {
@@ -81,8 +82,8 @@ const loadBoard = async ({ period, mode, time, modifiers }, now) => {
 
   return rows.map((row) => ({
     userId: row._id.toString(),
-    username: row.user.username,
-    displayName: row.user.displayName || row.user.username,
+    username: publicHandle(row.user),
+    displayName: publicName(row.user),
     avatar: row.user.avatar || '',
     region: regionFromTimezone(row.user.timezone),
     raceWins: row.user.stats?.raceWins || 0,

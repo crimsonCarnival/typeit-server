@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/user.model.js';
 import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/env.js';
+import { USERNAME_PATTERN } from '../utils/public-identity.js';
 
 /**
  * Generates a JWT token for a user
@@ -14,6 +15,10 @@ const generateToken = (userId) => {
  * Registers a new user
  */
 export const register = async (username, email, password, displayName) => {
+  if (!USERNAME_PATTERN.test(username)) {
+    throw new Error('Username must be 3-20 letters, numbers, dots, dashes or underscores');
+  }
+
   // Check if user already exists
   const existingUser = await User.findOne({
     $or: [{ email }, { username }]
