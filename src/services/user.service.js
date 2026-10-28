@@ -92,19 +92,51 @@ export const deleteAccount = async (userId) => {
  * Search users by username (public profiles only)
  */
 export const searchUsers = async (query, limit = 20) => {
-  if (!query || query.length < 2) {
+  const q = typeof query === 'string' ? query.trim().replace(/^@/, '') : '';
+  if (q.length < 2) {
     return [];
   }
 
-  return await User.find({
+  const pattern = escapeRegex(q);
+  const users = await User.find({
     status: 'active',
     $or: [
-      { username: { $regex: escapeRegex(query), $options: 'i' } },
-      { displayName: { $regex: escapeRegex(query), $options: 'i' } },
+      { username: { $regex: pattern, $options: 'i' } },
+      { displayName: { $regex: pattern, $options: 'i' } },
     ],
   })
-    .limit(limit)
-    .select('username displayName avatar stats.highScore stats.bestWpm stats.gamesPlayed');
+    // Fetch a few extra so the closest matches can be put first.
+    .limit(limit * 3)
+    .select('username displayName avatar stats.bestWpm stats.gamesPlayed followersCount')
+    .lean();
+
+  return rankSearchResults(users, q).slice(0, limit).map((u) => ({
+    id: u._id.toString(),
+    username: u.username,
+    displayName: u.displayName || u.username,
+    avatar: u.avatar || '',
+    bestWpm: u.stats?.bestWpm || 0,
+    gamesPlayed: u.stats?.gamesPlayed || 0,
+    followersCount: u.followersCount || 0,
+  }));
+};
+
+/**
+ * Orders search hits: exact username, then usernames starting with the
+ * query, then display names starting with it, then anything containing it;
+ * ties go to the more active player. Pure.
+ */
+export const rankSearchResults = (users, query) => {
+  const q = query.toLowerCase();
+  const score = (u) => {
+    const name = (u.username || '').toLowerCase();
+    const display = (u.displayName || '').toLowerCase();
+    if (name === q) return 0;
+    if (name.startsWith(q)) return 1;
+    if (display.startsWith(q)) return 2;
+    return 3;
+  };
+  return [...users].sort((a, b) => score(a) - score(b) || (b.stats?.gamesPlayed || 0) - (a.stats?.gamesPlayed || 0));
 };
 
 /**
