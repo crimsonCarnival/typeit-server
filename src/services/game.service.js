@@ -384,6 +384,32 @@ export const startDailySession = async (userId, challenge) => {
 };
 
 /**
+ * Points the player's session at targeted drill text. Drills are practice:
+ * the text is marked as client-chosen so drill runs are never ranked.
+ */
+export const startDrillSession = async (userId, { text, totalWords }) => {
+  let session = await getSessionByUserId(userId);
+  if (!session) {
+    session = await createSession({ persist: true, gameMode: 'words' }, userId);
+  }
+  const updated = await updateSession(session._id, {
+    text,
+    typedText: '',
+    totalWords,
+    gameMode: 'words',
+    wordCount: totalWords,
+    punctuationEnabled: false,
+    numbersEnabled: false,
+    textSource: 'client',
+    startedAt: null,
+    dailyDate: null,
+    incomplete: true,
+    resultsId: null,
+  });
+  return getState(updated);
+};
+
+/**
  * Stamps the server clock at the player's first keystroke. Idempotent: only
  * the first call for an in-progress session counts, so a client can't push
  * its start later by calling again.
