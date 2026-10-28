@@ -13,6 +13,7 @@ import {
   validateWordList,
 } from '../services/learn.service.js';
 import { startPracticeSession } from '../services/game.service.js';
+import { buildReviewText, getReviewOverview } from '../services/review.service.js';
 import { MAX_WORD_LISTS } from '../config/learn.js';
 
 const fail = (res, status, error) => res.status(status).json({ success: false, error });
@@ -21,14 +22,15 @@ const learnController = {
   /** GET /api/learn: lessons, progress, common-words stats and word lists. */
   overview: async (req, res) => {
     try {
-      res.json({ success: true, data: await getLearnOverview(req.user._id) });
+      const [overview, review] = await Promise.all([getLearnOverview(req.user._id), getReviewOverview(req.user._id)]);
+      res.json({ success: true, data: { ...overview, review } });
     } catch (err) {
       fail(res, 500, 'Could not load lessons');
     }
   },
 
   /**
-   * POST /api/learn/start { kind: 'lesson' | 'common-words' | 'list', id? }
+   * POST /api/learn/start { kind: 'lesson' | 'common-words' | 'list' | 'review', id? }
    * Loads practice text into the session. For lessons, `id` defaults to the
    * first lesson not yet passed.
    */
@@ -52,6 +54,11 @@ const learnController = {
         if (!list) return fail(res, 404, 'List not found');
         content = buildListText(list);
         practice = { kind, id: list._id.toString() };
+      } else if (kind === 'review') {
+        const { duePairs } = await getReviewOverview(userId);
+        content = buildReviewText(duePairs);
+        if (!content) return fail(res, 409, 'Nothing to review right now');
+        practice = { kind, id: duePairs.join(' ') };
       } else {
         return fail(res, 400, 'Invalid practice kind');
       }

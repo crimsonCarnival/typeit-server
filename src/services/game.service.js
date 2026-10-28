@@ -9,6 +9,8 @@ import { DEFAULT_RULES } from '../config/gameplay.js';
 import { recordDailyFinish } from './daily.service.js';
 import { recordPlayDay, syncAchievements } from './achievement.service.js';
 import { recordPracticeResult } from './learn.service.js';
+import { recordReviewRun } from './review.service.js';
+import { SKIP_CHAR } from '../config/gameplay.js';
 import { gameEvents } from '../events/game-events.js';
 import { INTEGRITY_FLAGS } from '../config/integrity.js';
 import { DEFAULT_TEXT_CATEGORY } from '../config/texts.js';
@@ -444,6 +446,15 @@ export const endGame = async (run, { typedText = '', elapsedMs, userId = null, m
 
   const savedResult = await gameResult.save();
   results.resultId = savedResult._id.toString();
+
+  // Missed digraphs join the player's review queue; due ones typed cleanly move on.
+  if (replay.valid) {
+    try {
+      await recordReviewRun(userId, { digraphErrors: replay.digraphErrors, typedText: replay.typed.split(SKIP_CHAR).join(' ') });
+    } catch (e) {
+      // Best-effort; the run itself is saved.
+    }
+  }
 
   const lessonId = session.practice?.kind === 'lesson'
     ? session.practice.id

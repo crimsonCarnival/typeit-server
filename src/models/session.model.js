@@ -103,7 +103,7 @@ const sessionSchema = new Schema(
     practice: {
       type: new Schema(
         {
-          kind: { type: String, enum: ['drill', 'lesson', 'common-words', 'list', 'ghost'], required: true },
+          kind: { type: String, enum: ['drill', 'lesson', 'common-words', 'list', 'ghost', 'weak-keys', 'review'], required: true },
           id: { type: String, default: null },
         },
         { _id: false }

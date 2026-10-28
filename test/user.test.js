@@ -9,6 +9,7 @@ import UserAchievement from '../src/models/user-achievement.model.js';
 import LessonProgress from '../src/models/lesson-progress.model.js';
 import WordList from '../src/models/word-list.model.js';
 import Follow from '../src/models/follow.model.js';
+import DigraphReview from '../src/models/digraph-review.model.js';
 import { deleteAccount } from '../src/services/user.service.js';
 
 describe('deleteAccount', () => {
@@ -18,7 +19,7 @@ describe('deleteAccount', () => {
     const userId = new mongoose.Types.ObjectId();
     mock.method(User, 'findByIdAndDelete', async () => ({ _id: userId }));
     const followFind = mock.method(Follow, 'find', () => ({ lean: async () => [] }));
-    const models = { Session, Result, DailyAttempt, UserAchievement, LessonProgress, WordList };
+    const models = { Session, Result, DailyAttempt, UserAchievement, LessonProgress, WordList, DigraphReview };
     const calls = Object.fromEntries(
       Object.entries(models).map(([name, model]) => [name, mock.method(model, 'deleteMany', async () => ({}))])
     );

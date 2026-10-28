@@ -15,6 +15,7 @@ const router = express.Router();
 router.post('/start', optionalAuth, gameController.startGame);
 router.post('/progress', optionalAuth, progressLimit, gameController.progress);
 router.post('/drill', auth, errorMapController.drill);
+router.post('/weak-keys', auth, errorMapController.weakKeys);
 router.get('/leaderboard', gameController.getLeaderboard);
 // Phrases-mode text categories for the client's text-source menu.
 router.get('/texts', (req, res) => res.json({ success: true, data: { categories: listCategories() } }));

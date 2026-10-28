@@ -3,6 +3,7 @@ import Result from '../models/result.model.js';
 import DailyAttempt from '../models/daily-attempt.model.js';
 import UserAchievement from '../models/user-achievement.model.js';
 import LessonProgress from '../models/lesson-progress.model.js';
+import DigraphReview from '../models/digraph-review.model.js';
 import WordList from '../models/word-list.model.js';
 import Session from '../models/session.model.js';
 import { deleteFollowsOf, isFollowing } from './follow.service.js';
@@ -80,6 +81,7 @@ export const deleteAccount = async (userId) => {
     UserAchievement.deleteMany({ userId }),
     LessonProgress.deleteMany({ userId }),
     WordList.deleteMany({ userId }),
+    DigraphReview.deleteMany({ userId }),
     deleteFollowsOf(userId),
   ]);
 
