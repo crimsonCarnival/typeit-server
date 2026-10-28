@@ -122,6 +122,8 @@ export const getState = (session) => {
     // Keys the server already holds for this run (resume and progress offsets).
     keyCount: session.keyCount || 0,
     startedAt: session.startedAt ? new Date(session.startedAt).getTime() : null,
+    // Lets a client resuming a run line its clock up with startedAt.
+    serverNow: Date.now(),
     passage: session.passage || null,
     dailyDate: session.dailyDate || null,
     practice: session.practice || null,
