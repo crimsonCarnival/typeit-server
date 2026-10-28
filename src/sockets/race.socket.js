@@ -19,6 +19,7 @@ const SHAPES = {
     name: 'string?',
     isPrivate: 'boolean?',
     mode: 'string?',
+    category: 'string?',
     wordCount: 'number?',
     timeLimit: 'number?',
     maxPlayers: 'number?',
@@ -28,6 +29,7 @@ const SHAPES = {
   },
   settings: {
     mode: 'string?',
+    category: 'string?',
     wordCount: 'number?',
     timeLimit: 'number?',
     maxPlayers: 'number?',

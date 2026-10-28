@@ -1,3 +1,5 @@
+import { DEFAULT_TEXT_CATEGORY, TEXT_CATEGORIES } from './texts.js';
+
 /**
  * Live race configuration. All race timing is decided by the server.
  */
@@ -6,9 +8,11 @@ export const RACE_MAX_PLAYERS = 8;
 export const RACE_DEFAULT_MAX_PLAYERS = 4;
 export const RACE_PLAYER_LIMITS = Object.freeze([2, 3, 4, 6, 8]);
 
-// Race modes: `words` ends when you've typed the whole text (first across the
-// line wins); `time` gives everyone the same clock and the highest WPM wins.
-export const RACE_MODES = Object.freeze(['words', 'time']);
+// Race modes: `words` and `phrases` end when you've typed the whole text (first
+// across the line wins; phrases are real passages from a text category);
+// `time` gives everyone the same clock and the highest WPM wins.
+export const RACE_MODES = Object.freeze(['words', 'time', 'phrases']);
+export const RACE_CATEGORIES = TEXT_CATEGORIES;
 export const RACE_WORD_COUNTS = Object.freeze([10, 25, 50, 75, 100, 150, 200, 300, 400, 500]);
 export const RACE_TIME_LIMITS = Object.freeze([15, 30, 60, 120, 180, 300, 600]);
 // Timed races need more text than anyone can type; this many words per second
@@ -22,6 +26,7 @@ export const RACE_NAME_MAX_LENGTH = 40;
 export const RACE_COUNTDOWN_MS = 5000;
 export const RACE_DEFAULT_SETTINGS = Object.freeze({
   mode: 'words',
+  category: DEFAULT_TEXT_CATEGORY,
   wordCount: 25,
   timeLimit: 30,
   maxPlayers: RACE_DEFAULT_MAX_PLAYERS,

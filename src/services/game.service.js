@@ -372,7 +372,7 @@ export const startPracticeSession = async (userId, { text, totalWords }, practic
  * run is timed from the race's `startAt` for everyone, so no client can get a
  * head start by reporting an earlier first keystroke.
  */
-export const startRaceSession = async (userId, { code, text, totalWords, wordCount, timeMax = 600, punctuation = false, numbers = false, startAt }) => {
+export const startRaceSession = async (userId, { code, text, totalWords, wordCount, timeMax = 600, punctuation = false, numbers = false, phrases = false, passage = null, startAt }) => {
   let session = await getSessionByUserId(userId);
   if (!session) {
     session = await createSession({ persist: true, gameMode: 'words' }, userId);
@@ -381,7 +381,8 @@ export const startRaceSession = async (userId, { code, text, totalWords, wordCou
     text,
     typedText: '',
     totalWords,
-    gameMode: 'words',
+    gameMode: phrases ? 'phrases' : 'words',
+    textCategory: passage?.category ?? DEFAULT_TEXT_CATEGORY,
     wordCount,
     // Word races get a generous limit (the race itself times out first, see
     // config/race.js); timed races use their clock.
@@ -389,7 +390,7 @@ export const startRaceSession = async (userId, { code, text, totalWords, wordCou
     punctuationEnabled: punctuation,
     numbersEnabled: numbers,
     textSource: 'server',
-    passage: null,
+    passage,
     rules: { ...DEFAULT_RULES },
     ...FRESH_RUN,
     startedAt: new Date(startAt),

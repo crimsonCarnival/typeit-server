@@ -1,4 +1,5 @@
 import {
+  RACE_CATEGORIES,
   RACE_COUNTDOWN_OPTIONS,
   RACE_DEFAULT_SETTINGS,
   RATING_K,
@@ -11,6 +12,7 @@ import {
   RACE_TIME_LIMITS,
   RACE_WORD_COUNTS,
 } from '../../config/race.js';
+import { CASUAL_TEXT_CATEGORIES } from '../../config/texts.js';
 
 /**
  * Race state machine. Pure: every function takes the room (and `now`) and
@@ -38,6 +40,7 @@ export const normalizeSettings = (input = {}, base = RACE_DEFAULT_SETTINGS) => {
   };
   const ok =
     pick('mode', RACE_MODES) &&
+    pick('category', RACE_CATEGORIES) &&
     pick('wordCount', RACE_WORD_COUNTS) &&
     pick('timeLimit', RACE_TIME_LIMITS) &&
     pick('maxPlayers', RACE_PLAYER_LIMITS) &&
@@ -164,8 +167,8 @@ export const updateSettings = (room, userId, input, now) => {
   const next = normalizeSettings(input, room);
   if (!next) return 'bad-settings';
   if (room.players.length > next.maxPlayers) return 'too-many-players';
-  const { mode, wordCount, timeLimit, maxPlayers, countdownSec, punctuation, numbers } = next;
-  Object.assign(room, { mode, wordCount, timeLimit, maxPlayers, countdownSec, punctuation, numbers });
+  const { mode, category, wordCount, timeLimit, maxPlayers, countdownSec, punctuation, numbers } = next;
+  Object.assign(room, { mode, category, wordCount, timeLimit, maxPlayers, countdownSec, punctuation, numbers });
   room.players.forEach((p) => { p.ready = false; });
   backToLobby(room);
   room.updatedAt = now;
@@ -266,7 +269,10 @@ export const finishRace = (room, now) => {
     .filter((p) => p.finishedAt && p.result?.completed)
     .sort(byOrder);
   finishers.forEach((p, i) => { p.place = i + 1; });
-  room.winnerId = finishers.find((p) => p.result?.ranked)?.userId ?? null;
+  // Casual texts (e.g. GTA) are never ranked, so the first finisher wins
+  // there; otherwise the winner must have a run that passed verification.
+  const casual = room.mode === 'phrases' && CASUAL_TEXT_CATEGORIES.includes(room.category);
+  room.winnerId = finishers.find((p) => casual || p.result?.ranked)?.userId ?? null;
 };
 
 /**
@@ -328,6 +334,7 @@ export const publicRoom = (room, now) => ({
   hostId: room.hostId,
   isPrivate: room.isPrivate,
   mode: room.mode,
+  category: room.category,
   wordCount: room.wordCount,
   timeLimit: room.timeLimit,
   maxPlayers: room.maxPlayers,
