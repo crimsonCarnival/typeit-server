@@ -52,7 +52,7 @@ const resultSchema = new Schema(
     },
     gameMode: {
       type: String,
-      enum: ['phrases', 'words'],
+      enum: ['phrases', 'words', 'code'],
       required: true,
     },
     wordCount: {

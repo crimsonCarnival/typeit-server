@@ -18,7 +18,7 @@ const sessionSchema = new Schema(
     },
     gameMode: {
       type: String,
-      enum: ['phrases', 'words'],
+      enum: ['phrases', 'words', 'code'],
       default: 'phrases',
     },
     wordCount: {
@@ -46,6 +46,15 @@ const sessionSchema = new Schema(
     textCategory: {
       type: String,
       default: 'classics',
+    },
+    // Words mode language and code mode language (config/texts.js).
+    language: {
+      type: String,
+      default: 'english',
+    },
+    codeLanguage: {
+      type: String,
+      default: 'javascript',
     },
     passage: {
       type: new Schema(

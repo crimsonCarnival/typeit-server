@@ -1,4 +1,4 @@
-import { TEXT_CATEGORIES } from '../config/texts.js';
+import { CODE_LANGUAGES, TEXT_CATEGORIES, WORD_LANGUAGES } from '../config/texts.js';
 import { DIFFICULTIES, STOP_ON_ERROR } from '../config/gameplay.js';
 
 /**
@@ -69,7 +69,7 @@ export const checkTimezone = (value) => {
   }
 };
 
-export const GAME_MODES = Object.freeze(['phrases', 'words']);
+export const GAME_MODES = Object.freeze(['phrases', 'words', 'code']);
 export const WORD_COUNT_MIN = 1;
 export const WORD_COUNT_MAX = 500;
 export const TIME_MAX_MIN = 5;
@@ -85,7 +85,7 @@ const isIntIn = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
  * defaults. Returns `{ error }` or `{ settings }`.
  */
 export const parseGameSettings = (body = {}) => {
-  const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, rules, clientText, clientTotalWords } = body || {};
+  const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, language, codeLanguage, rules, clientText, clientTotalWords } = body || {};
   const settings = {};
 
   if (gameMode !== undefined) {
@@ -115,6 +115,14 @@ export const parseGameSettings = (body = {}) => {
   if (textCategory !== undefined) {
     if (!TEXT_CATEGORIES.includes(textCategory)) return { error: 'Invalid text category' };
     settings.textCategory = textCategory;
+  }
+  if (language !== undefined) {
+    if (!WORD_LANGUAGES.includes(language)) return { error: 'Invalid language' };
+    settings.language = language;
+  }
+  if (codeLanguage !== undefined) {
+    if (!CODE_LANGUAGES.includes(codeLanguage)) return { error: 'Invalid code language' };
+    settings.codeLanguage = codeLanguage;
   }
   for (const [name, value] of [['punctuationEnabled', punctuationEnabled], ['numbersEnabled', numbersEnabled]]) {
     if (value === undefined) continue;

@@ -2,8 +2,11 @@ import { classics } from '../data/texts/classics.js';
 import { quotes } from '../data/texts/quotes.js';
 import { speeches } from '../data/texts/speeches.js';
 import { gta } from '../data/texts/gta.js';
+import { CODE_SNIPPETS } from '../data/texts/code.js';
 import {
   CASUAL_TEXT_CATEGORIES,
+  CODE_LANGUAGE_NAMES,
+  DEFAULT_CODE_LANGUAGE,
   DEFAULT_TEXT_CATEGORY,
   QUOTES_MAX_PER_RUN,
   QUOTES_MIN_WORDS,
@@ -58,6 +61,26 @@ export const pickPassage = (category = DEFAULT_TEXT_CATEGORY, random = Math.rand
     text: chosen.text,
     totalWords: countWords(chosen.text),
     passage: { category: cat, title: chosen.title, author: chosen.author },
+  };
+};
+
+/**
+ * Picks a code snippet. Lines keep their order and line breaks (typed with
+ * Enter) but lose leading indentation.
+ */
+export const pickCode = (language = DEFAULT_CODE_LANGUAGE, random = Math.random) => {
+  const lang = CODE_SNIPPETS[language] ? language : DEFAULT_CODE_LANGUAGE;
+  const pool = CODE_SNIPPETS[lang];
+  const snippet = pool[Math.floor(random() * pool.length)];
+  const text = snippet
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join('\n');
+  return {
+    text,
+    totalWords: countWords(text),
+    passage: { category: 'code', title: CODE_LANGUAGE_NAMES[lang] ?? lang, author: 'TypeIt snippets' },
   };
 };
 

@@ -72,3 +72,38 @@ describe('text library', () => {
     assert.ok(flags.includes(INTEGRITY_FLAGS.CASUAL_TEXT));
   });
 });
+
+describe('code and language text', async () => {
+  const { pickCode } = await import('../src/services/text-library.service.js');
+  const { CODE_LANGUAGES, WORD_LANGUAGES } = await import('../src/config/texts.js');
+  const { LANGUAGE_WORDS } = await import('../src/data/languages.js');
+
+  it('builds code snippets as unindented lines joined by line breaks', () => {
+    for (const lang of CODE_LANGUAGES) {
+      const { text, passage } = pickCode(lang, seededRandom(lang));
+      assert.equal(passage.category, 'code');
+      assert.ok(text.split('\n').every((line) => line.length > 0 && line === line.trim()), lang);
+      assert.match(text, /^[\x20-\x7e\n]+$/);
+    }
+  });
+
+  it('generates words in other languages as casual text', () => {
+    const es = generateText('words', 30, false, false, { language: 'spanish' });
+    assert.equal(es.passage.category, 'language');
+    assert.ok(es.text.split(' ').every((w) => LANGUAGE_WORDS.spanish.includes(w)));
+    assert.equal(generateText('words', 10, false, false, { language: 'english' }).passage, null);
+    assert.equal(generateText('code', 10, false, false, { codeLanguage: 'python' }).passage.title, 'Python');
+    assert.ok(WORD_LANGUAGES.includes('german'));
+  });
+
+  it('validates the new settings', () => {
+    assert.equal(parseGameSettings({ gameMode: 'code', codeLanguage: 'rust' }).settings.codeLanguage, 'rust');
+    assert.ok(parseGameSettings({ codeLanguage: 'cobol' }).error);
+    assert.ok(parseGameSettings({ language: 'klingon' }).error);
+  });
+
+  it('never ranks code or non-English runs', () => {
+    const base = { textSource: 'server', serverStartedAt: null, serverEndedAt: new Date(), clientElapsedMs: 1000, wpm: 50, rawWpm: 50, typedText: '' };
+    assert.ok(assessRun({ ...base, casualText: true }).flags.includes(INTEGRITY_FLAGS.CASUAL_TEXT));
+  });
+});

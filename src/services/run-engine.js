@@ -45,7 +45,7 @@ export const isKeystroke = (entry) =>
   typeof entry[1] === 'string' &&
   entry[1].length === 1;
 
-/** Index of the word each position belongs to (a space belongs to the word before it). */
+/** Index of the word each position belongs to (a space or line break belongs to the word before it). */
 const wordIndexMap = (text) => {
   const map = new Int32Array(text.length);
   const spans = [];
@@ -53,7 +53,7 @@ const wordIndexMap = (text) => {
   let start = 0;
   for (let i = 0; i < text.length; i++) {
     map[i] = word;
-    if (text[i] === ' ') {
+    if (text[i] === ' ' || text[i] === '\n') {
       spans.push({ start, end: i });
       word++;
       start = i + 1;

@@ -31,10 +31,10 @@ const registerGuest = (state) => {
 };
 
 /** Creates a guest run from validated settings (server text unless the client brought its own). */
-const newGuestRun = ({ gameMode, wordCount = 50, timeMax = 120, punctuationEnabled = false, numbersEnabled = false, textCategory, rules, clientText, clientTotalWords }) => {
+const newGuestRun = ({ gameMode, wordCount = 50, timeMax = 120, punctuationEnabled = false, numbersEnabled = false, textCategory, language, codeLanguage, rules, clientText, clientTotalWords }) => {
   const generated = clientText
     ? { text: clientText, totalWords: clientTotalWords ?? clientText.trim().split(/\s+/).length, passage: null }
-    : generateText(gameMode, wordCount, punctuationEnabled, numbersEnabled, textCategory);
+    : generateText(gameMode, wordCount, punctuationEnabled, numbersEnabled, { textCategory, language, codeLanguage });
   return registerGuest({
     ...generated,
     gameMode,
@@ -43,6 +43,8 @@ const newGuestRun = ({ gameMode, wordCount = 50, timeMax = 120, punctuationEnabl
     punctuationEnabled,
     numbersEnabled,
     textCategory,
+    language,
+    codeLanguage,
     rules: normaliseRules(rules),
     textSource: clientText ? 'client' : 'server',
   });
@@ -87,11 +89,11 @@ const gameController = {
     try {
       const parsed = parseGameSettings(req.body);
       if (parsed.error) return badRequest(res, parsed.error);
-      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, clientText, clientTotalWords } = parsed.settings;
+      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, language, codeLanguage, clientText, clientTotalWords } = parsed.settings;
       const persist = req.body?.persist === true;
       const { rules } = parsed.settings;
       const userId = req.user?._id || null;
-      const options = { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, rules };
+      const options = { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, language, codeLanguage, rules };
       // When the client provides pre-generated text (phrases + non-default source),
       // forward it so createSession skips server-side text generation.
       if (clientText) {
@@ -116,7 +118,7 @@ const gameController = {
             session.punctuationEnabled !== options.punctuationEnabled ||
             session.numbersEnabled !== options.numbersEnabled ||
             session.timeMax !== options.timeMax ||
-            (options.textCategory !== undefined && options.textCategory !== session.textCategory) ||
+            ['textCategory', 'language', 'codeLanguage'].some((f) => options[f] !== undefined && options[f] !== session[f]) ||
             (options.rules !== undefined &&
               JSON.stringify(normaliseRules({ ...(session.rules?.toObject?.() ?? {}), ...options.rules })) !== JSON.stringify(normaliseRules(session.rules)))
           ) {
@@ -277,7 +279,7 @@ const gameController = {
       const userId = req.user?._id || null;
       const parsed = parseGameSettings(req.body);
       if (parsed.error) return badRequest(res, parsed.error);
-      const { wordCount, gameMode, timeMax, punctuationEnabled, numbersEnabled, textCategory, clientText, clientTotalWords } = parsed.settings;
+      const { wordCount, gameMode, timeMax, punctuationEnabled, numbersEnabled, textCategory, language, codeLanguage, clientText, clientTotalWords } = parsed.settings;
 
       // For authenticated users, look up and reset their session
       if (userId) {
@@ -290,6 +292,8 @@ const gameController = {
             punctuationEnabled,
             numbersEnabled,
             textCategory,
+            language,
+            codeLanguage,
             rules: parsed.settings.rules,
             clientText,
             clientTotalWords
@@ -376,6 +380,8 @@ const gameController = {
             punctuationEnabled: punctuationEnabled || false,
             numbersEnabled: numbersEnabled || false,
             textCategory,
+            language: parsed.settings.language,
+            codeLanguage: parsed.settings.codeLanguage,
             persist: true
           },
           userId
@@ -393,6 +399,8 @@ const gameController = {
         punctuationEnabled,
         numbersEnabled,
         textCategory,
+        language: parsed.settings.language,
+        codeLanguage: parsed.settings.codeLanguage,
         rules: parsed.settings.rules
       });
 

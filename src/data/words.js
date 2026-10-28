@@ -34,15 +34,18 @@ const generateNumberString = (random = Math.random) => {
  * @param {boolean} options.punctuation - Add random punctuation
  * @param {boolean} options.numbers - Add random numbers
  * @param {string} [options.seed] - Makes the output reproducible (daily challenge)
+ * @param {string[]} [options.pool] - Draw from these words instead of random-words (other languages)
  * @returns {string} Space-separated word string
  */
 const generateWordContent = (count = 50, options = {}) => {
-  const { punctuation = false, numbers = false, seed } = options;
+  const { punctuation = false, numbers = false, seed, pool } = options;
   if (!count || count < 1) count = 50;
   const random = seed ? seededRandom(`${seed}:modifiers`) : Math.random;
   
   // Generate words using random-words library
-  const words = generate({ exactly: count, maxLength: 8, ...(seed ? { seed } : {}) });
+  const words = pool
+    ? Array.from({ length: count }, () => pool[Math.floor(random() * pool.length)])
+    : generate({ exactly: count, maxLength: 8, ...(seed ? { seed } : {}) });
   const picked = [];
   
   for (let i = 0; i < words.length; i++) {

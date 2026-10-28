@@ -13,8 +13,9 @@ import { recordReviewRun } from './review.service.js';
 import { SKIP_CHAR } from '../config/gameplay.js';
 import { gameEvents } from '../events/game-events.js';
 import { INTEGRITY_FLAGS } from '../config/integrity.js';
-import { DEFAULT_TEXT_CATEGORY } from '../config/texts.js';
-import { isCasualCategory, pickPassage } from './text-library.service.js';
+import { DEFAULT_CODE_LANGUAGE, DEFAULT_TEXT_CATEGORY, DEFAULT_WORD_LANGUAGE } from '../config/texts.js';
+import { isCasualCategory, pickCode, pickPassage } from './text-library.service.js';
+import { LANGUAGE_WORDS } from '../data/languages.js';
 
 // Preset categories used to bucket stats. Values outside these are 'custom'.
 const PRESET_TIMES = [30, 60, 90, 120];
@@ -63,20 +64,36 @@ export const validateElapsed = (elapsedMs, timeMax = 120) => {
   return { ok: true, elapsedMs };
 };
 
+/** Where a session's text comes from, besides mode and modifiers. */
+const sourceOf = (o = {}) => ({
+  textCategory: o.textCategory || DEFAULT_TEXT_CATEGORY,
+  language: o.language || DEFAULT_WORD_LANGUAGE,
+  codeLanguage: o.codeLanguage || DEFAULT_CODE_LANGUAGE,
+});
+
+const LANGUAGE_NAMES = Object.freeze({ spanish: 'Spanish', french: 'French', german: 'German', portuguese: 'Portuguese', italian: 'Italian' });
+
 /**
  * Generates text content based on game mode and settings. Phrases mode picks
- * a passage from `textCategory` and reports where it came from (`passage`);
- * words mode has no passage.
+ * a passage from the text category, code mode a snippet in the code
+ * language; both report where it came from (`passage`). Words mode draws
+ * words in the chosen language (a passage only names a non-English one).
+ *
+ * @param {object|string} [source]  { textCategory, language, codeLanguage } (a bare string is a text category)
  */
-export const generateText = (gameMode, wordCount, punctuationEnabled, numbersEnabled, textCategory = DEFAULT_TEXT_CATEGORY) => {
+export const generateText = (gameMode, wordCount, punctuationEnabled, numbersEnabled, source = {}) => {
+  const { textCategory, language, codeLanguage } = sourceOf(typeof source === 'string' ? { textCategory: source } : source);
+  if (gameMode === 'code') return pickCode(codeLanguage);
   if (gameMode !== 'words') {
     // Real prose exactly as written: punctuation and numbers are part of it.
     return pickPassage(textCategory);
   }
 
+  const pool = LANGUAGE_WORDS[language];
   let content = generateWordContent(wordCount, {
     punctuation: punctuationEnabled,
-    numbers: numbersEnabled
+    numbers: numbersEnabled,
+    ...(pool ? { pool } : {}),
   });
 
   // Strip anything the word generator may have included if toggles are off.
@@ -87,7 +104,9 @@ export const generateText = (gameMode, wordCount, punctuationEnabled, numbersEna
   const text = content.replace(/\s+/g, ' ').trim();
   const totalWords = text.split(/\s+/).length;
 
-  return { text, totalWords, passage: null };
+  // Only English words are ranked; other languages count as casual text.
+  const passage = pool ? { category: 'language', title: `${LANGUAGE_NAMES[language] ?? language} words`, author: '' } : null;
+  return { text, totalWords, passage };
 };
 
 /**
@@ -119,7 +138,7 @@ export const getState = (session) => {
     numbersEnabled: session.numbersEnabled,
     timeMax: session.timeMax,
     totalWords: session.totalWords,
-    textCategory: session.textCategory || DEFAULT_TEXT_CATEGORY,
+    ...sourceOf(session),
     rules: publicRules(session.rules),
     // Keys the server already holds for this run (resume and progress offsets).
     keyCount: session.keyCount || 0,
@@ -145,6 +164,8 @@ export const createSession = async (options = {}, userId = null) => {
     punctuationEnabled = false,
     numbersEnabled = false,
     textCategory = DEFAULT_TEXT_CATEGORY,
+    language = DEFAULT_WORD_LANGUAGE,
+    codeLanguage = DEFAULT_CODE_LANGUAGE,
     rules = DEFAULT_RULES,
     persist = false,
     clientText,
@@ -158,7 +179,7 @@ export const createSession = async (options = {}, userId = null) => {
     text = clientText;
     totalWords = clientTotalWords ?? clientText.trim().split(/\s+/).filter(Boolean).length;
   } else {
-    ({ text, totalWords, passage } = generateText(gameMode, wordCount, punctuationEnabled, numbersEnabled, textCategory));
+    ({ text, totalWords, passage } = generateText(gameMode, wordCount, punctuationEnabled, numbersEnabled, { textCategory, language, codeLanguage }));
   }
 
   const sessionData = {
@@ -172,6 +193,8 @@ export const createSession = async (options = {}, userId = null) => {
     timeMax,
     totalWords,
     textCategory,
+    language,
+    codeLanguage,
     passage,
     rules: normaliseRules(rules),
     textSource: clientText ? 'client' : 'server',
@@ -400,7 +423,7 @@ export const endGame = async (run, { typedText = '', elapsedMs, userId = null, m
   // Integrity compares the client's text with the full log (also keys the
   // display accepted just past a penalised deadline it hadn't heard about).
   const full = replayRun(run.text, run.keys, run.rules);
-  const casualText = run.gameMode === 'phrases' && !!run.passage && isCasualCategory(run.passage.category);
+  const casualText = !!run.passage && isCasualCategory(run.passage.category);
   const integrity = assessRun({
     textSource: run.textSource || 'client',
     casualText,
@@ -654,7 +677,11 @@ export const resetSession = async (sessionId, options = {}) => {
   const effectivePunctuation = overrides.punctuationEnabled !== undefined ? overrides.punctuationEnabled : session.punctuationEnabled;
   const effectiveNumbers = overrides.numbersEnabled !== undefined ? overrides.numbersEnabled : session.numbersEnabled;
   const effectiveTimeMax = overrides.timeMax !== undefined ? overrides.timeMax : session.timeMax;
-  const effectiveCategory = overrides.textCategory !== undefined ? overrides.textCategory : (session.textCategory || DEFAULT_TEXT_CATEGORY);
+  const effectiveSource = sourceOf({
+    textCategory: overrides.textCategory ?? session.textCategory,
+    language: overrides.language ?? session.language,
+    codeLanguage: overrides.codeLanguage ?? session.codeLanguage,
+  });
   const effectiveRules = normaliseRules({ ...(session.rules?.toObject?.() ?? session.rules ?? {}), ...(overrides.rules || {}) });
 
   let text, totalWords, passage = null;
@@ -667,7 +694,7 @@ export const resetSession = async (sessionId, options = {}) => {
       effectiveWordCount,
       effectivePunctuation,
       effectiveNumbers,
-      effectiveCategory
+      effectiveSource
     ));
   }
 
@@ -681,7 +708,7 @@ export const resetSession = async (sessionId, options = {}) => {
     punctuationEnabled: effectivePunctuation,
     numbersEnabled: effectiveNumbers,
     timeMax: effectiveTimeMax,
-    textCategory: effectiveCategory,
+    ...effectiveSource,
     passage,
     rules: effectiveRules,
     textSource: overrides.clientText ? 'client' : 'server',
@@ -700,7 +727,7 @@ export const updateSettings = async (sessionId, settings) => {
   const session = await getSession(sessionId);
   if (!session) return null;
 
-  const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, rules } = settings;
+  const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, language, codeLanguage, rules } = settings;
 
   let textChanged = false;
   const updates = {};
@@ -737,11 +764,12 @@ export const updateSettings = async (sessionId, settings) => {
       textChanged = true;
     }
   }
-  if (textCategory !== undefined && textCategory !== (session.textCategory || DEFAULT_TEXT_CATEGORY)) {
-    updates.textCategory = textCategory;
-    if ((updates.gameMode || session.gameMode) === 'phrases') {
-      textChanged = true;
-    }
+  // A source setting only regenerates text in the mode that uses it.
+  const current = sourceOf(session);
+  for (const [field, value, mode] of [['textCategory', textCategory, 'phrases'], ['language', language, 'words'], ['codeLanguage', codeLanguage, 'code']]) {
+    if (value === undefined || value === current[field]) continue;
+    updates[field] = value;
+    if ((updates.gameMode || session.gameMode) === mode) textChanged = true;
   }
 
   if (textChanged) {
@@ -750,14 +778,14 @@ export const updateSettings = async (sessionId, settings) => {
     const effectivePunctuation = updates.punctuationEnabled !== undefined ? updates.punctuationEnabled : session.punctuationEnabled;
     const effectiveNumbers = updates.numbersEnabled !== undefined ? updates.numbersEnabled : session.numbersEnabled;
 
-    const effectiveCategory = updates.textCategory || session.textCategory || DEFAULT_TEXT_CATEGORY;
+    const effectiveSource = sourceOf({ ...current, ...updates });
 
     const { text, totalWords, passage } = generateText(
       effectiveGameMode,
       effectiveWordCount,
       effectivePunctuation,
       effectiveNumbers,
-      effectiveCategory
+      effectiveSource
     );
 
     updates.text = text;
@@ -798,7 +826,7 @@ export const adoptGuestRun = async (userId, guest) => {
     timeMax: guest.timeMax,
     punctuationEnabled: guest.punctuationEnabled,
     numbersEnabled: guest.numbersEnabled,
-    textCategory: guest.textCategory || DEFAULT_TEXT_CATEGORY,
+    ...sourceOf(guest),
     passage: guest.passage || null,
     rules: normaliseRules(guest.rules),
     textSource: 'client',

@@ -167,3 +167,11 @@ describe('liveStats', () => {
     assert.equal(live.timeLeft, 19);
   });
 });
+
+describe('line breaks', () => {
+  it('are typed with Enter and end a word', () => {
+    const r = replayRun('if x\nreturn', log('if x\nreturn'));
+    assert.equal(r.typed, 'if x\nreturn');
+    assert.deepEqual(r.words.map((w) => [w.start, w.end]), [[0, 2], [3, 4], [5, 11]]);
+  });
+});
