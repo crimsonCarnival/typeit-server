@@ -81,4 +81,6 @@ export const RACE_MAX_SPECTATORS = 20;
 // Chat: short messages, one per CHAT_COOLDOWN_MS per user; emotes from a fixed set.
 export const CHAT_MAX_LENGTH = 140;
 export const CHAT_COOLDOWN_MS = 1000;
+// Recent lines kept per room so people who join later can catch up.
+export const CHAT_HISTORY_LIMIT = 30;
 export const RACE_EMOTES = Object.freeze(['wave', 'fire', 'laugh', 'wow', 'clap', 'gg']);
