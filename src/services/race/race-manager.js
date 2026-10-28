@@ -9,6 +9,7 @@ import { areMutual } from '../follow.service.js';
 import { formMatches } from './matchmaking.js';
 import {
   CHAT_COOLDOWN_MS,
+  CHAT_HISTORY_LIMIT,
   CHAT_MAX_LENGTH,
   QUICK_MATCH_MAX_PLAYERS,
   QUICK_MATCH_WORD_COUNT,
@@ -166,6 +167,7 @@ const actions = {
     if (err) return error(user.userId, err);
     roomOf.set(user.userId, room.code);
     broadcast(room, now);
+    sendChatHistory(user.userId, room);
   },
 
   settings(user, { type: _type, ...settings }, now) {
@@ -258,6 +260,7 @@ const actions = {
     room.spectators.push(user.userId);
     watching.set(user.userId, room.code);
     broadcast(room, now);
+    sendChatHistory(user.userId, room);
   },
 
   chat(user, { text }, now) {
@@ -282,8 +285,15 @@ function say(user, content, now) {
   if (now - (lastChat.get(user.userId) ?? 0) < CHAT_COOLDOWN_MS) return error(user.userId, 'chat-cooldown');
   lastChat.set(user.userId, now);
   const msg = { type: 'chat', from: { userId: user.userId, displayName: user.displayName }, ...content, at: now };
+  const { type: _type, ...line } = msg;
+  room.chat = [...(room.chat ?? []), line].slice(-CHAT_HISTORY_LIMIT);
   for (const id of everyoneIn(room)) sendTo(id, msg);
 }
+
+/** Lets someone who just joined, watched or reconnected catch up on the chat. */
+const sendChatHistory = (userId, room) => {
+  if (room.chat?.length) sendTo(userId, { type: 'chat-history', lines: room.chat });
+};
 
 /** Puts a matched group in a new rated room and starts its countdown. */
 async function startQuickMatch(userIds, now) {
@@ -342,6 +352,7 @@ export const connect = (user, ws) => {
     const player = findPlayer(room, user.userId);
     if (player) player.connected = true;
     broadcast(room);
+    sendChatHistory(user.userId, room);
   }
   return true;
 };

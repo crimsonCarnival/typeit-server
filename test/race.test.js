@@ -358,6 +358,23 @@ describe('race socket', () => {
     conns.forEach((c) => c.ws.close());
   });
 
+  it('shows earlier chat to someone who joins later', async () => {
+    const a = await authed(new mongoose.Types.ObjectId());
+    const b = await authed(new mongoose.Types.ObjectId());
+    await waitFor(a.inbox, (m) => m.type === 'ready');
+    await waitFor(b.inbox, (m) => m.type === 'ready');
+    a.ws.send(JSON.stringify({ type: 'create', name: 'Chatty', wordCount: 25, isPrivate: true }));
+    const room = await waitFor(a.inbox, (m) => m.type === 'room');
+    a.ws.send(JSON.stringify({ type: 'chat', text: 'before you came' }));
+    await waitFor(a.inbox, (m) => m.type === 'chat');
+    b.ws.send(JSON.stringify({ type: 'join', code: room.room.code }));
+    const history = await waitFor(b.inbox, (m) => m.type === 'chat-history');
+    assert.deepEqual(history.lines.map((l) => l.text), ['before you came']);
+    assert.equal('type' in history.lines[0], false);
+    a.ws.close();
+    b.ws.close();
+  });
+
   it('runs a two-player lobby up to the countdown', async () => {
     const a = await open();
     const b = await open();
