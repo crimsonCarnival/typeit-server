@@ -54,6 +54,11 @@ const resultSchema = new Schema(
     wordCount: {
       type: Number,
     },
+    // Set when the run was a daily challenge attempt ('YYYY-MM-DD').
+    dailyDate: {
+      type: String,
+      default: null,
+    },
     // Modifier combination the run was played with; rankings never mix them.
     modifiers: {
       type: String,

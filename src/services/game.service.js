@@ -5,6 +5,7 @@ import Result from '../models/result.model.js';
 import User from '../models/user.model.js';
 import { assessRun } from './integrity.service.js';
 import { analyzeKeystrokes } from './keystroke.service.js';
+import { recordDailyFinish } from './daily.service.js';
 import { INTEGRITY_FLAGS } from '../config/integrity.js';
 
 // Preset categories used to bucket stats. Values outside these are 'custom'.
@@ -209,6 +210,7 @@ export const getState = (session) => {
     numbersEnabled: session.numbersEnabled,
     timeMax: session.timeMax,
     totalWords: session.totalWords,
+    dailyDate: session.dailyDate || null,
     isAuthenticated: !!session.userId
   };
 };
@@ -250,6 +252,7 @@ export const createSession = async (options = {}, userId = null) => {
     totalWords,
     textSource: clientText ? 'client' : 'server',
     startedAt: null,
+    dailyDate: null,
     incomplete: true
   };
 
@@ -352,6 +355,34 @@ export const updateSession = async (sessionId, updates) => {
 };
 
 /**
+ * Points the player's session at a daily challenge: server text, fixed
+ * settings, fresh timing. Returns the client-facing state (text included).
+ */
+export const startDailySession = async (userId, challenge) => {
+  const updates = {
+    text: challenge.text,
+    typedText: '',
+    totalWords: challenge.totalWords,
+    gameMode: challenge.gameMode,
+    wordCount: challenge.wordCount,
+    timeMax: challenge.timeMax,
+    punctuationEnabled: challenge.punctuationEnabled,
+    numbersEnabled: challenge.numbersEnabled,
+    textSource: 'server',
+    startedAt: null,
+    dailyDate: challenge.date,
+    incomplete: true,
+    resultsId: null,
+  };
+  let session = await getSessionByUserId(userId);
+  if (!session) {
+    session = await createSession({ persist: true, gameMode: challenge.gameMode }, userId);
+  }
+  const updated = await updateSession(session._id, updates);
+  return { ...getState(updated), dailyDate: challenge.date };
+};
+
+/**
  * Stamps the server clock at the player's first keystroke. Idempotent: only
  * the first call for an in-progress session counts, so a client can't push
  * its start later by calling again.
@@ -415,6 +446,7 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
     wordCount: session.wordCount,
     timeMax: session.timeMax,
     modifiers: modifiersOf(session),
+    dailyDate: session.dailyDate || null,
     performance: performance || [],
     migrated: !!migrated,
     userId: userId || session.userId || null,
@@ -422,6 +454,19 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
   });
 
   const savedResult = await gameResult.save();
+
+  if (session.dailyDate) {
+    try {
+      await recordDailyFinish(userId, session.dailyDate, {
+        resultId: savedResult._id,
+        wpm: results.wpm,
+        accuracy: results.accuracy,
+        ranked: integrity.ranked,
+      });
+    } catch (e) {
+      // The result itself is saved; the attempt simply stays unfinished.
+    }
+  }
 
   // Update user stats (keep this server-side so clients can't omit it)
   try {
@@ -508,7 +553,8 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
       isTyping: false,
       resultsId: savedResult._id,
       typedText: typedText || '',
-      incomplete: false
+      incomplete: false,
+      dailyDate: null
     });
   } else {
     // No DB session exists for this run; persist one now that we have a result
@@ -596,6 +642,7 @@ export const resetSession = async (sessionId, options = {}) => {
     timeMax: effectiveTimeMax,
     textSource: overrides.clientText ? 'client' : 'server',
     startedAt: null,
+    dailyDate: null,
     incomplete: true,
   });
 };
@@ -661,6 +708,8 @@ export const updateSettings = async (sessionId, settings) => {
   }
 
   if (Object.keys(updates).length > 0) {
+    // Changing any setting mid-daily abandons the daily run.
+    updates.dailyDate = null;
     return await updateSession(sessionId, updates);
   }
 
@@ -698,6 +747,7 @@ export const migrateSession = async (userId, payload) => {
     numbersEnabled,
     textSource: 'client',
     startedAt: null,
+    dailyDate: null,
     incomplete: true,
     resultsId: null,
   };

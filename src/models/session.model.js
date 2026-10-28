@@ -53,6 +53,12 @@ const sessionSchema = new Schema(
       type: Date,
       default: null,
     },
+    // 'YYYY-MM-DD' while this session is playing that day's daily challenge.
+    // Any reset or settings change clears it, ending the daily run.
+    dailyDate: {
+      type: String,
+      default: null,
+    },
     incomplete: {
       type: Boolean,
       default: true,

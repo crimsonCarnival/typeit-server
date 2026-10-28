@@ -43,6 +43,11 @@ const gameController = {
 
       if (userId) {
         let session = await getSessionByUserId(userId);
+        // A daily run in progress outranks whatever settings the client
+        // defaults to (e.g. after a page reload): resume it unchanged.
+        if (session && session.incomplete && session.dailyDate) {
+          return res.json({ success: true, data: getState(session) });
+        }
         if (session && session.incomplete) {
           // If the client explicitly passed text or if any setting changed, regenerate/reset it
           if (
