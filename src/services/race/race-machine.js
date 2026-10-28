@@ -12,7 +12,6 @@ import {
   RACE_TIME_LIMITS,
   RACE_WORD_COUNTS,
 } from '../../config/race.js';
-import { CASUAL_TEXT_CATEGORIES } from '../../config/texts.js';
 
 /**
  * Race state machine. Pure: every function takes the room (and `now`) and
@@ -271,10 +270,7 @@ export const finishRace = (room, now) => {
     .filter((p) => p.finishedAt && p.result?.completed)
     .sort(byOrder);
   finishers.forEach((p, i) => { p.place = i + 1; });
-  // Casual texts (e.g. GTA) are never ranked, so the first finisher wins
-  // there; otherwise the winner must have a run that passed verification.
-  const casual = room.mode === 'phrases' && CASUAL_TEXT_CATEGORIES.includes(room.category);
-  room.winnerId = finishers.find((p) => casual || p.result?.ranked)?.userId ?? null;
+  room.winnerId = finishers.find((p) => p.result?.ranked)?.userId ?? null;
 };
 
 /**

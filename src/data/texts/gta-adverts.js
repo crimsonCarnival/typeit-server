@@ -1,7 +1,7 @@
 /**
  * Radio adverts from Grand Theft Auto: San Andreas, transcribed (shared
  * spreadsheet "GTA: San Andreas - Audio Transcripts", Adverts sheet).
- * Part of the casual GTA category: mature satire, runs never ranked.
+ * Part of the GTA category: mature satire.
  */
 export const gtaAdverts = [
   { title: "Abiggo Brokerage and Pawn", author: 'GTA San Andreas radio advert', text: "In the game of checkers in life, sometimes you make the wrong move and get jumped. If you made the wrong move and need money fast, we're here to capitalize on that. Some people are destined to make the wrong move over and over again. It's okay. It's alright. What are possessions in life's treasures if you can't cash them in during a self-imposed crisis? At Abigo Brokerage and Pawn, we'll secure the funds you need for any collateral items you can get your hands on. Just bring in your stock, jewelry, electronics, munitions, dust, automobiles, power tools, home, movies, children, exercise equipment, pets, coin collection, or your spleen, liver, or kidney, and we'll give you cash on the spot. After all, some habits are expensive. We don't need proof of ownership. We're about the most basic exchange. Goods for money. We'll buy anything, including your dignity. Abigo Brokerage and Pawn." },
