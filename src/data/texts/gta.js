@@ -1,8 +1,7 @@
 /**
  * In-game radio and comedy transcripts from the Grand Theft Auto series,
  * plus the San Andreas radio adverts (gta-adverts.js).
- * Mature language and satire; a casual category: runs on it are saved
- * but never ranked.
+ * Mature language and satire. Ranked like the other phrase categories.
  */
 const lines = [
   "Crazy Liberty City, anything goes. Everything's crazy. Weed is illegal. Ain't that a motherfuck...? Feel free to come to Liberty City but weed is illegal.",

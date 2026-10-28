@@ -247,18 +247,7 @@ describe('race settings and modes', () => {
     assert.equal(updateSettings(r, 'u1', { mode: 'phrases', category: 'gta' }, T0), 'rated-room');
   });
 
-  it('lets the first finisher win a casual (GTA) race even though runs are unranked', () => {
-    const r = lobby();
-    updateSettings(r, 'u1', { mode: 'phrases', category: 'gta' }, T0);
-    for (const id of ['u1', 'u2']) setReady(r, id, true, T0);
-    r.text = 'a b c';
-    tick(r, r.startAt);
-    recordFinish(r, 'u2', { wpm: 60, accuracy: 95, ranked: false, completed: true }, r.startAt + 5000);
-    recordFinish(r, 'u1', { wpm: 70, accuracy: 95, ranked: false, completed: true }, r.startAt + 6000);
-    assert.equal(r.winnerId, 'u2');
-  });
-
-  it('still needs a verified run to win a ranked-text phrases race', () => {
+  it('still needs a verified run to win a phrases race', () => {
     const r = lobby();
     updateSettings(r, 'u1', { mode: 'phrases', category: 'classics' }, T0);
     for (const id of ['u1', 'u2']) setReady(r, id, true, T0);

@@ -7,9 +7,10 @@ import { WORD_LANGUAGES } from '../data/languages.js';
 export const TEXT_CATEGORIES = Object.freeze(['classics', 'quotes', 'speeches', 'gta']);
 export const DEFAULT_TEXT_CATEGORY = 'classics';
 
-// Casual text: runs are saved but never ranked. GTA and code snippets are
-// small pools; other word languages aren't comparable with the English boards.
-export const CASUAL_TEXT_CATEGORIES = Object.freeze(['gta', 'code', 'language']);
+// Casual text: runs are saved but never ranked. Code snippets are a small
+// pool; other word languages aren't comparable with the English boards.
+// GTA phrases are ranked like the other phrase categories.
+export const CASUAL_TEXT_CATEGORIES = Object.freeze(['code', 'language']);
 
 // Code mode: snippet language.
 export { CODE_LANGUAGES };

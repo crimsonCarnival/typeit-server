@@ -48,7 +48,7 @@ describe('text library', () => {
   it('lists categories with pool sizes', () => {
     const cats = listCategories();
     assert.deepEqual(cats.map((c) => c.id), [...TEXT_CATEGORIES]);
-    assert.ok(cats.find((c) => c.id === 'gta').casual);
+    assert.ok(cats.every((c) => !c.casual), 'every phrase category is ranked, GTA included');
   });
 
   it('validates the category setting', () => {
