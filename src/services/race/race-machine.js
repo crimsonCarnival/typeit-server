@@ -170,7 +170,9 @@ export const updateProgress = (room, userId, { index, accuracy }, now) => {
 
 /**
  * Records a player's finished, server-assessed run. Ends the race once no
- * connected player is still typing.
+ * connected player is still typing. A run that didn't complete the text
+ * (e.g. submitted early) ends that player's race as did-not-finish: it can't
+ * place or win.
  * @returns {string|null|'finished'}
  */
 export const recordFinish = (room, userId, result, now) => {
@@ -181,7 +183,7 @@ export const recordFinish = (room, userId, result, now) => {
 
   player.finishedAt = now;
   player.result = result;
-  player.index = room.text.length;
+  if (result.completed) player.index = room.text.length;
   player.wpm = result.wpm;
   player.accuracy = result.accuracy;
   room.updatedAt = now;
@@ -201,7 +203,9 @@ export const recordFinish = (room, userId, result, now) => {
 export const finishRace = (room, now) => {
   room.state = 'finished';
   room.finishedAt = now;
-  const finishers = room.players.filter((p) => p.finishedAt).sort((a, b) => a.finishedAt - b.finishedAt);
+  const finishers = room.players
+    .filter((p) => p.finishedAt && p.result?.completed)
+    .sort((a, b) => a.finishedAt - b.finishedAt);
   finishers.forEach((p, i) => { p.place = i + 1; });
   room.winnerId = finishers.find((p) => p.result?.ranked)?.userId ?? null;
 };

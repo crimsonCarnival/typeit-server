@@ -100,7 +100,10 @@ export const attachRaceSocket = (server, isAllowedOrigin) => {
           return ws.close(4003, 'auth failed');
         }
         clearTimeout(authTimer);
-        connect(user, ws);
+        if (!connect(user, ws)) {
+          user = null;
+          return ws.close(4008, 'too many connections');
+        }
         ws.send(JSON.stringify({ type: 'ready', userId: user.userId, serverNow: Date.now() }));
         return;
       }

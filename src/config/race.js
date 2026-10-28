@@ -30,4 +30,9 @@ export const RACE_AUTH_TIMEOUT_MS = 5000;
 // Messages beyond this rate (per socket, per second) are dropped.
 export const RACE_MAX_MESSAGES_PER_SECOND = 30;
 export const RACE_INVITE_COOLDOWN_MS = 10_000;
+// Private rooms are protected by their code (~923k combinations). Failed
+// joins are limited per user across all their sockets, which makes guessing
+// a code impractical (10/min is ~64 days per account to cover the space).
+export const RACE_MAX_FAILED_JOINS_PER_MINUTE = 10;
+export const RACE_MAX_SOCKETS_PER_USER = 3;
 export const RACE_TICK_MS = 250;

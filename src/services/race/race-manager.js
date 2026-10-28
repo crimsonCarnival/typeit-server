@@ -12,6 +12,8 @@ import {
   RACE_FINISHED_TTL_MS,
   RACE_INVITE_COOLDOWN_MS,
   RACE_LOBBY_IDLE_MS,
+  RACE_MAX_FAILED_JOINS_PER_MINUTE,
+  RACE_MAX_SOCKETS_PER_USER,
   RACE_MIN_PLAYERS,
   RACE_NAME_MAX_LENGTH,
   RACE_TICK_MS,
@@ -41,6 +43,13 @@ const rooms = new Map(); // code -> room
 const roomOf = new Map(); // userId -> code
 const sockets = new Map(); // userId -> Set<ws>
 const lastInvite = new Map(); // `${from}|${to}` -> ms
+const failedJoins = new Map(); // userId -> timestamps of recent failed joins (per user, not per socket)
+
+const tooManyFailedJoins = (userId, now) => {
+  const recent = (failedJoins.get(userId) ?? []).filter((t) => now - t < 60_000);
+  failedJoins.set(userId, recent);
+  return recent.length >= RACE_MAX_FAILED_JOINS_PER_MINUTE;
+};
 
 const send = (ws, msg) => {
   if (ws.readyState === 1) ws.send(JSON.stringify(msg));
@@ -106,8 +115,12 @@ const actions = {
   },
 
   join(user, { code }, now) {
+    if (tooManyFailedJoins(user.userId, now)) return error(user.userId, 'too-many-attempts');
     const room = typeof code === 'string' && rooms.get(code.trim().toUpperCase());
-    if (!room) return error(user.userId, 'room-not-found');
+    if (!room) {
+      failedJoins.get(user.userId).push(now);
+      return error(user.userId, 'room-not-found');
+    }
     if (roomOf.get(user.userId) !== room.code) detach(user.userId, now);
     const err = joinRoom(room, user, now);
     if (err) return error(user.userId, err);
@@ -184,8 +197,10 @@ export const handleMessage = async (user, msg, now = Date.now()) => {
   await action(user, msg, now);
 };
 
+/** Registers a socket; returns false when the user already has too many open. */
 export const connect = (user, ws) => {
   if (!sockets.has(user.userId)) sockets.set(user.userId, new Set());
+  if (sockets.get(user.userId).size >= RACE_MAX_SOCKETS_PER_USER) return false;
   sockets.get(user.userId).add(ws);
   // Reconnecting mid-race: put the player back in their room.
   const room = rooms.get(roomOf.get(user.userId));
@@ -194,6 +209,7 @@ export const connect = (user, ws) => {
     if (player) player.connected = true;
     broadcast(room);
   }
+  return true;
 };
 
 export const disconnect = (user, ws) => {
@@ -254,7 +270,9 @@ const persistRace = async (room) => {
 gameEvents.on('run:finished', ({ userId, session, results, resultId, ranked }) => {
   const room = rooms.get(session.raceCode);
   if (!room) return;
-  const outcome = recordFinish(room, String(userId), { wpm: results.wpm, accuracy: results.accuracy, ranked, resultId }, Date.now());
+  // Only a run that covered the whole text counts as crossing the line.
+  const completed = results.completionPercentage >= 100;
+  const outcome = recordFinish(room, String(userId), { wpm: results.wpm, accuracy: results.accuracy, ranked, resultId, completed }, Date.now());
   if (outcome === 'finished') void persistRace(room);
   if (outcome === null || outcome === 'finished') broadcast(room);
 });

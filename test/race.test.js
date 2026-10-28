@@ -21,7 +21,9 @@ import {
 import { attachRaceSocket, _validShape } from '../src/sockets/race.socket.js';
 import {
   RACE_COUNTDOWN_MS,
+  RACE_MAX_FAILED_JOINS_PER_MINUTE,
   RACE_MAX_PLAYERS,
+  RACE_MAX_SOCKETS_PER_USER,
   RACE_SOCKET_PATH,
   RACE_START_NOW_DELAY_MS,
   RACE_TIMEOUT_MS,
@@ -60,8 +62,8 @@ describe('race state machine', () => {
     assert.equal(tick(room, room.startAt), 'started');
     assert.equal(room.state, 'racing');
 
-    assert.equal(recordFinish(room, 'u2', { wpm: 80, accuracy: 98, ranked: true }, room.startAt + 9000), null);
-    assert.equal(recordFinish(room, 'u1', { wpm: 70, accuracy: 99, ranked: true }, room.startAt + 11000), 'finished');
+    assert.equal(recordFinish(room, 'u2', { wpm: 80, accuracy: 98, ranked: true, completed: true }, room.startAt + 9000), null);
+    assert.equal(recordFinish(room, 'u1', { wpm: 70, accuracy: 99, ranked: true, completed: true }, room.startAt + 11000), 'finished');
     assert.equal(room.state, 'finished');
     assert.equal(room.winnerId, 'u2');
     assert.deepEqual(room.players.map((p) => [p.userId, p.place]), [['u1', 2], ['u2', 1]]);
@@ -136,22 +138,33 @@ describe('race state machine', () => {
 
   it('never awards the win to an unverified run', () => {
     const r = racing();
-    recordFinish(r, 'u1', { wpm: 300, accuracy: 100, ranked: false }, r.startAt + 1000);
-    recordFinish(r, 'u2', { wpm: 60, accuracy: 95, ranked: true }, r.startAt + 20000);
+    recordFinish(r, 'u1', { wpm: 300, accuracy: 100, ranked: false, completed: true }, r.startAt + 1000);
+    recordFinish(r, 'u2', { wpm: 60, accuracy: 95, ranked: true, completed: true }, r.startAt + 20000);
     assert.equal(r.players.find((p) => p.userId === 'u1').place, 1);
+    assert.equal(r.winnerId, 'u2');
+  });
+
+  it('never places a run that did not cover the whole text', () => {
+    const r = racing();
+    // u1 submits early with half the text; u2 finishes properly later.
+    recordFinish(r, 'u1', { wpm: 200, accuracy: 100, ranked: true, completed: false }, r.startAt + 1000);
+    recordFinish(r, 'u2', { wpm: 60, accuracy: 95, ranked: true, completed: true }, r.startAt + 20000);
+    const u1 = r.players.find((p) => p.userId === 'u1');
+    assert.equal(u1.place, null);
+    assert.notEqual(u1.index, r.text.length, 'lane stays where they stopped');
     assert.equal(r.winnerId, 'u2');
   });
 
   it('has no winner when nobody verified', () => {
     const r = racing();
-    recordFinish(r, 'u1', { wpm: 50, accuracy: 90, ranked: false }, r.startAt + 1000);
-    recordFinish(r, 'u2', { wpm: 50, accuracy: 90, ranked: false }, r.startAt + 2000);
+    recordFinish(r, 'u1', { wpm: 50, accuracy: 90, ranked: false, completed: true }, r.startAt + 1000);
+    recordFinish(r, 'u2', { wpm: 50, accuracy: 90, ranked: false, completed: true }, r.startAt + 2000);
     assert.equal(r.winnerId, null);
   });
 
   it('ends when the last racer still typing disconnects', () => {
     const r = racing(3);
-    recordFinish(r, 'u1', { wpm: 70, accuracy: 97, ranked: true }, r.startAt + 9000);
+    recordFinish(r, 'u1', { wpm: 70, accuracy: 97, ranked: true, completed: true }, r.startAt + 9000);
     assert.equal(leaveRoom(r, 'u2', r.startAt + 9500).finished, false);
     assert.equal(leaveRoom(r, 'u3', r.startAt + 9600).finished, true);
     assert.equal(r.state, 'finished');
@@ -160,7 +173,7 @@ describe('race state machine', () => {
 
   it('times out unfinished racers', () => {
     const r = racing();
-    recordFinish(r, 'u1', { wpm: 70, accuracy: 97, ranked: true }, r.startAt + 9000);
+    recordFinish(r, 'u1', { wpm: 70, accuracy: 97, ranked: true, completed: true }, r.startAt + 9000);
     assert.equal(tick(r, r.startAt + RACE_TIMEOUT_MS - 1), null);
     assert.equal(tick(r, r.startAt + RACE_TIMEOUT_MS), 'finished');
     assert.equal(r.winnerId, 'u1');
@@ -168,8 +181,8 @@ describe('race state machine', () => {
 
   it('ignores a second finish from the same player', () => {
     const r = racing(3);
-    recordFinish(r, 'u1', { wpm: 70, accuracy: 97, ranked: true }, r.startAt + 9000);
-    assert.equal(recordFinish(r, 'u1', { wpm: 99, accuracy: 99, ranked: true }, r.startAt + 9500), 'already-finished');
+    recordFinish(r, 'u1', { wpm: 70, accuracy: 97, ranked: true, completed: true }, r.startAt + 9000);
+    assert.equal(recordFinish(r, 'u1', { wpm: 99, accuracy: 99, ranked: true, completed: true }, r.startAt + 9500), 'already-finished');
   });
 
   it('withholds the text until the race starts', () => {
@@ -246,6 +259,43 @@ describe('race socket', () => {
     const closed = new Promise((resolve) => ws.on('close', (code) => resolve(code)));
     ws.send(JSON.stringify({ type: 'auth', token: 'garbage' }));
     assert.equal(await closed, 4003);
+  });
+
+  const authed = async (id) => {
+    const c = await open();
+    c.ws.send(JSON.stringify({ type: 'auth', token: jwt.sign({ userId: String(id) }, JWT_SECRET) }));
+    return c;
+  };
+
+  it('limits failed joins per user, across sockets', async () => {
+    const id = new mongoose.Types.ObjectId();
+    const a = await authed(id);
+    const b = await authed(id);
+    await waitFor(a.inbox, (m) => m.type === 'ready');
+    await waitFor(b.inbox, (m) => m.type === 'ready');
+    for (let i = 0; i < RACE_MAX_FAILED_JOINS_PER_MINUTE; i++) {
+      (i % 2 ? a : b).ws.send(JSON.stringify({ type: 'join', code: `TYPE-ZZ${String(i).padStart(2, '0')}` }));
+    }
+    const notFound = () => [...a.inbox, ...b.inbox].filter((m) => m.code === 'room-not-found').length;
+    await waitFor(a.inbox, () => notFound() >= RACE_MAX_FAILED_JOINS_PER_MINUTE);
+    a.ws.send(JSON.stringify({ type: 'join', code: 'TYPE-ZZZZ' }));
+    await waitFor(a.inbox, (m) => m.code === 'too-many-attempts');
+    a.ws.close();
+    b.ws.close();
+  });
+
+  it('caps open sockets per user', async () => {
+    const id = new mongoose.Types.ObjectId();
+    const conns = [];
+    for (let i = 0; i < RACE_MAX_SOCKETS_PER_USER; i++) {
+      const c = await authed(id);
+      await waitFor(c.inbox, (m) => m.type === 'ready');
+      conns.push(c);
+    }
+    const extra = await authed(id);
+    const code = await new Promise((resolve) => extra.ws.on('close', resolve));
+    assert.equal(code, 4008);
+    conns.forEach((c) => c.ws.close());
   });
 
   it('runs a two-player lobby up to the countdown', async () => {
