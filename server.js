@@ -8,6 +8,10 @@ import { PORT, NODE_ENV, CORS_ORIGINS } from './src/config/env.js';
 
 const app = express();
 
+// Trust the proxy so req.ip reflects the client's IP (not Render's proxy IP).
+// Needed for rate limiting and security checks behind Render/Vercel.
+app.set('trust proxy', 1);
+
 // Allow an explicit allowlist via CORS_ORIGINS; otherwise default to local dev
 // origins (localhost on any port + dev tunnels).
 const defaultOrigins = [/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/, /\.devtunnels\.ms$/];
