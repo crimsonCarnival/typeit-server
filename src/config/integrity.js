@@ -33,6 +33,7 @@ export const MIN_GAP_CV = 0.1;
 
 export const INTEGRITY_FLAGS = Object.freeze({
   CLIENT_TEXT: 'client-text',
+  CASUAL_TEXT: 'casual-text',
   NO_SERVER_START: 'no-server-start',
   TIMING_MISMATCH: 'timing-mismatch',
   IMPLAUSIBLE_WPM: 'implausible-wpm',

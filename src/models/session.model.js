@@ -41,6 +41,23 @@ const sessionSchema = new Schema(
       type: Number,
       default: 0,
     },
+    // Phrases-mode passage category (config/texts.js) and the passage the
+    // current text came from, shown as attribution. Null in words mode.
+    textCategory: {
+      type: String,
+      default: 'classics',
+    },
+    passage: {
+      type: new Schema(
+        {
+          category: { type: String, required: true },
+          title: { type: String, default: null },
+          author: { type: String, default: '' },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
     // 'client' when the player supplied the text (custom sources, guest
     // migration); such runs are never ranked.
     textSource: {

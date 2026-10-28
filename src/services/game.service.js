@@ -1,4 +1,3 @@
-import { paragraphs } from '../data/paragraphs.js';
 import { generateWordContent } from '../data/words.js';
 import Session from '../models/session.model.js';
 import Result from '../models/result.model.js';
@@ -10,6 +9,8 @@ import { recordPlayDay, syncAchievements } from './achievement.service.js';
 import { recordPracticeResult } from './learn.service.js';
 import { gameEvents } from '../events/game-events.js';
 import { INTEGRITY_FLAGS } from '../config/integrity.js';
+import { DEFAULT_TEXT_CATEGORY } from '../config/texts.js';
+import { isCasualCategory, pickPassage } from './text-library.service.js';
 
 // Preset categories used to bucket stats. Values outside these are 'custom'.
 const PRESET_TIMES = [30, 60, 90, 120];
@@ -61,33 +62,30 @@ export const validateGameTiming = (startTime, endTime, timeMax = 120) => {
 };
 
 /**
- * Generates text content based on game mode and settings
+ * Generates text content based on game mode and settings. Phrases mode picks
+ * a passage from `textCategory` and reports where it came from (`passage`);
+ * words mode has no passage.
  */
-export const generateText = (gameMode, wordCount, punctuationEnabled, numbersEnabled) => {
-  let content = '';
-
-  if (gameMode === 'words') {
-    // Words mode: generate a word list then apply modifier toggles.
-    content = generateWordContent(wordCount, {
-      punctuation: punctuationEnabled,
-      numbers: numbersEnabled
-    });
-
-    // Strip anything the word generator may have included if toggles are off.
-    if (!punctuationEnabled) content = stripPunctuation(content);
-    if (!numbersEnabled)     content = content.replace(/[0-9]/g, '');
-  } else {
-    // Phrases mode: use a real prose paragraph exactly as written.
-    // Punctuation and numbers are part of the original text and are always kept.
-    const paragraphIndex = Math.floor(Math.random() * paragraphs.length);
-    content = paragraphs[paragraphIndex];
+export const generateText = (gameMode, wordCount, punctuationEnabled, numbersEnabled, textCategory = DEFAULT_TEXT_CATEGORY) => {
+  if (gameMode !== 'words') {
+    // Real prose exactly as written: punctuation and numbers are part of it.
+    return pickPassage(textCategory);
   }
+
+  let content = generateWordContent(wordCount, {
+    punctuation: punctuationEnabled,
+    numbers: numbersEnabled
+  });
+
+  // Strip anything the word generator may have included if toggles are off.
+  if (!punctuationEnabled) content = stripPunctuation(content);
+  if (!numbersEnabled)     content = content.replace(/[0-9]/g, '');
 
   // Normalise whitespace (may have been introduced by stripping).
   const text = content.replace(/\s+/g, ' ').trim();
   const totalWords = text.split(/\s+/).length;
 
-  return { text, totalWords };
+  return { text, totalWords, passage: null };
 };
 
 /**
@@ -213,6 +211,8 @@ export const getState = (session) => {
     numbersEnabled: session.numbersEnabled,
     timeMax: session.timeMax,
     totalWords: session.totalWords,
+    textCategory: session.textCategory || DEFAULT_TEXT_CATEGORY,
+    passage: session.passage || null,
     dailyDate: session.dailyDate || null,
     practice: session.practice || null,
     raceCode: session.raceCode || null,
@@ -230,6 +230,7 @@ export const createSession = async (options = {}, userId = null) => {
     timeMax = 120,
     punctuationEnabled = false,
     numbersEnabled = false,
+    textCategory = DEFAULT_TEXT_CATEGORY,
     persist = false,
     clientText,
     clientTotalWords,
@@ -237,12 +238,12 @@ export const createSession = async (options = {}, userId = null) => {
 
   // Use client-provided text (e.g. txtgen phrases) when available;
   // otherwise fall back to server-side generation.
-  let text, totalWords;
+  let text, totalWords, passage = null;
   if (clientText) {
     text = clientText;
     totalWords = clientTotalWords ?? clientText.trim().split(/\s+/).filter(Boolean).length;
   } else {
-    ({ text, totalWords } = generateText(gameMode, wordCount, punctuationEnabled, numbersEnabled));
+    ({ text, totalWords, passage } = generateText(gameMode, wordCount, punctuationEnabled, numbersEnabled, textCategory));
   }
 
   const sessionData = {
@@ -255,6 +256,8 @@ export const createSession = async (options = {}, userId = null) => {
     numbersEnabled,
     timeMax,
     totalWords,
+    textCategory,
+    passage,
     textSource: clientText ? 'client' : 'server',
     startedAt: null,
     dailyDate: null,
@@ -376,6 +379,7 @@ export const startDailySession = async (userId, challenge) => {
     punctuationEnabled: challenge.punctuationEnabled,
     numbersEnabled: challenge.numbersEnabled,
     textSource: 'server',
+    passage: null,
     startedAt: null,
     dailyDate: challenge.date,
     practice: null,
@@ -410,6 +414,7 @@ export const startPracticeSession = async (userId, { text, totalWords }, practic
     punctuationEnabled: false,
     numbersEnabled: false,
     textSource: 'client',
+    passage: null,
     startedAt: null,
     dailyDate: null,
     practice,
@@ -441,6 +446,7 @@ export const startRaceSession = async (userId, { code, text, totalWords, wordCou
     punctuationEnabled: false,
     numbersEnabled: false,
     textSource: 'server',
+    passage: null,
     startedAt: new Date(startAt),
     dailyDate: null,
     practice: null,
@@ -485,6 +491,7 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
   // (guest migration), so they count as client text.
   const integrity = assessRun({
     textSource: session.textSource || 'client',
+    casualText: session.gameMode === 'phrases' && !!session.passage && isCasualCategory(session.passage.category),
     serverStartedAt: session.startedAt || null,
     serverEndedAt: new Date(),
     clientElapsedMs: endTime - startTime,
@@ -515,6 +522,7 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
     wordCount: session.wordCount,
     timeMax: session.timeMax,
     modifiers: modifiersOf(session),
+    textCategory: session.passage?.category || null,
     dailyDate: session.dailyDate || null,
     performance: performance || [],
     migrated: !!migrated,
@@ -720,17 +728,19 @@ export const resetSession = async (sessionId, options = {}) => {
   const effectivePunctuation = overrides.punctuationEnabled !== undefined ? overrides.punctuationEnabled : session.punctuationEnabled;
   const effectiveNumbers = overrides.numbersEnabled !== undefined ? overrides.numbersEnabled : session.numbersEnabled;
   const effectiveTimeMax = overrides.timeMax !== undefined ? overrides.timeMax : session.timeMax;
+  const effectiveCategory = overrides.textCategory !== undefined ? overrides.textCategory : (session.textCategory || DEFAULT_TEXT_CATEGORY);
 
-  let text, totalWords;
+  let text, totalWords, passage = null;
   if (overrides.clientText) {
     text = overrides.clientText;
     totalWords = overrides.clientTotalWords ?? overrides.clientText.trim().split(/\s+/).filter(Boolean).length;
   } else {
-    ({ text, totalWords } = generateText(
+    ({ text, totalWords, passage } = generateText(
       effectiveGameMode,
       effectiveWordCount,
       effectivePunctuation,
-      effectiveNumbers
+      effectiveNumbers,
+      effectiveCategory
     ));
   }
 
@@ -744,6 +754,8 @@ export const resetSession = async (sessionId, options = {}) => {
     punctuationEnabled: effectivePunctuation,
     numbersEnabled: effectiveNumbers,
     timeMax: effectiveTimeMax,
+    textCategory: effectiveCategory,
+    passage,
     textSource: overrides.clientText ? 'client' : 'server',
     startedAt: null,
     dailyDate: null,
@@ -760,7 +772,7 @@ export const updateSettings = async (sessionId, settings) => {
   const session = await getSession(sessionId);
   if (!session) return null;
 
-  const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled } = settings;
+  const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory } = settings;
 
   let textChanged = false;
   const updates = {};
@@ -788,6 +800,12 @@ export const updateSettings = async (sessionId, settings) => {
       textChanged = true;
     }
   }
+  if (textCategory !== undefined && textCategory !== (session.textCategory || DEFAULT_TEXT_CATEGORY)) {
+    updates.textCategory = textCategory;
+    if ((updates.gameMode || session.gameMode) === 'phrases') {
+      textChanged = true;
+    }
+  }
 
   if (textChanged) {
     const effectiveGameMode = updates.gameMode || session.gameMode;
@@ -795,14 +813,18 @@ export const updateSettings = async (sessionId, settings) => {
     const effectivePunctuation = updates.punctuationEnabled !== undefined ? updates.punctuationEnabled : session.punctuationEnabled;
     const effectiveNumbers = updates.numbersEnabled !== undefined ? updates.numbersEnabled : session.numbersEnabled;
 
-    const { text, totalWords } = generateText(
+    const effectiveCategory = updates.textCategory || session.textCategory || DEFAULT_TEXT_CATEGORY;
+
+    const { text, totalWords, passage } = generateText(
       effectiveGameMode,
       effectiveWordCount,
       effectivePunctuation,
-      effectiveNumbers
+      effectiveNumbers,
+      effectiveCategory
     );
 
     updates.text = text;
+    updates.passage = passage;
     updates.typedText = '';
     updates.totalWords = totalWords;
     updates.textSource = 'server';
@@ -854,6 +876,7 @@ export const migrateSession = async (userId, payload) => {
     punctuationEnabled,
     numbersEnabled,
     textSource: 'client',
+    passage: null,
     startedAt: null,
     dailyDate: null,
     practice: null,

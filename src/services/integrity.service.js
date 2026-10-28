@@ -21,6 +21,7 @@ import {
  *
  * @param {object} run
  * @param {'server'|'client'} run.textSource  where the scored text came from
+ * @param {boolean} [run.casualText]         text from a casual pool (config/texts.js)
  * @param {Date|null} run.serverStartedAt      set by POST /game/begin
  * @param {Date} run.serverEndedAt             when /game/end was received
  * @param {number} run.clientElapsedMs         endTime - startTime from the client
@@ -34,6 +35,7 @@ import {
  */
 export const assessRun = ({
   textSource,
+  casualText = false,
   serverStartedAt,
   serverEndedAt,
   clientElapsedMs,
@@ -48,6 +50,9 @@ export const assessRun = ({
 
   if (textSource !== 'server') {
     flags.push(INTEGRITY_FLAGS.CLIENT_TEXT);
+  }
+  if (casualText) {
+    flags.push(INTEGRITY_FLAGS.CASUAL_TEXT);
   }
 
   if (!serverStartedAt) {

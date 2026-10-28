@@ -1,3 +1,5 @@
+import { TEXT_CATEGORIES } from '../config/texts.js';
+
 /**
  * Input rules for account fields. Kept as plain functions returning an error
  * message (or null) so controllers can answer 400 with a precise reason.
@@ -82,7 +84,7 @@ const isIntIn = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
  * defaults. Returns `{ error }` or `{ settings }`.
  */
 export const parseGameSettings = (body = {}) => {
-  const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, clientText, clientTotalWords } = body || {};
+  const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, clientText, clientTotalWords } = body || {};
   const settings = {};
 
   if (gameMode !== undefined) {
@@ -96,6 +98,10 @@ export const parseGameSettings = (body = {}) => {
   if (timeMax !== undefined) {
     if (!isIntIn(timeMax, TIME_MAX_MIN, TIME_MAX_MAX)) return { error: `Time limit must be ${TIME_MAX_MIN}-${TIME_MAX_MAX} seconds` };
     settings.timeMax = timeMax;
+  }
+  if (textCategory !== undefined) {
+    if (!TEXT_CATEGORIES.includes(textCategory)) return { error: 'Invalid text category' };
+    settings.textCategory = textCategory;
   }
   for (const [name, value] of [['punctuationEnabled', punctuationEnabled], ['numbersEnabled', numbersEnabled]]) {
     if (value === undefined) continue;

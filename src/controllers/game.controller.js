@@ -61,10 +61,10 @@ const gameController = {
     try {
       const parsed = parseGameSettings(req.body);
       if (parsed.error) return badRequest(res, parsed.error);
-      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, clientText, clientTotalWords } = parsed.settings;
+      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, clientText, clientTotalWords } = parsed.settings;
       const persist = req.body?.persist === true;
       const userId = req.user?._id || null;
-      const options = { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled };
+      const options = { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory };
       // When the client provides pre-generated text (phrases + non-default source),
       // forward it so createSession skips server-side text generation.
       if (clientText) {
@@ -88,7 +88,8 @@ const gameController = {
             session.wordCount !== options.wordCount ||
             session.punctuationEnabled !== options.punctuationEnabled ||
             session.numbersEnabled !== options.numbersEnabled ||
-            session.timeMax !== options.timeMax
+            session.timeMax !== options.timeMax ||
+            (options.textCategory !== undefined && options.textCategory !== session.textCategory)
           ) {
             session = await resetSession(session._id, options);
           }
@@ -268,7 +269,7 @@ const gameController = {
       const userId = req.user?._id || null;
       const parsed = parseGameSettings(req.body);
       if (parsed.error) return badRequest(res, parsed.error);
-      const { wordCount, gameMode, timeMax, punctuationEnabled, numbersEnabled, clientText, clientTotalWords } = parsed.settings;
+      const { wordCount, gameMode, timeMax, punctuationEnabled, numbersEnabled, textCategory, clientText, clientTotalWords } = parsed.settings;
 
       // For authenticated users, look up and reset their session
       if (userId) {
@@ -280,6 +281,7 @@ const gameController = {
             timeMax,
             punctuationEnabled,
             numbersEnabled,
+            textCategory,
             clientText,
             clientTotalWords
           });
@@ -298,15 +300,18 @@ const gameController = {
         });
       }
 
-      const { text, totalWords } = generateText(
+      const { text, totalWords, passage } = generateText(
         gameMode,
         wordCount || 50,
         punctuationEnabled || false,
-        numbersEnabled || false
+        numbersEnabled || false,
+        textCategory
       );
 
       const newSessionData = {
         text,
+        textCategory,
+        passage,
         gameMode,
         wordCount: wordCount || 50,
         punctuationEnabled: punctuationEnabled || false,
@@ -342,7 +347,7 @@ const gameController = {
       const userId = req.user?._id || null;
       const parsed = parseGameSettings(req.body);
       if (parsed.error) return badRequest(res, parsed.error);
-      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled } = parsed.settings;
+      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory } = parsed.settings;
 
       // For authenticated users, look up and refresh their session
       if (userId) {
@@ -364,15 +369,18 @@ const gameController = {
         });
       }
 
-      const { text, totalWords } = generateText(
+      const { text, totalWords, passage } = generateText(
         gameMode,
         wordCount || 50,
         punctuationEnabled || false,
-        numbersEnabled || false
+        numbersEnabled || false,
+        textCategory
       );
 
       const newSessionData = {
         text,
+        textCategory,
+        passage,
         gameMode,
         wordCount: wordCount || 50,
         punctuationEnabled: punctuationEnabled || false,
@@ -407,7 +415,7 @@ const gameController = {
       const userId = req.user?._id || null;
       const parsed = parseGameSettings(req.body);
       if (parsed.error) return badRequest(res, parsed.error);
-      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled } = parsed.settings;
+      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory } = parsed.settings;
 
       if (!userId) {
         return res.status(400).json({
@@ -427,6 +435,7 @@ const gameController = {
             timeMax: timeMax || 120,
             punctuationEnabled: punctuationEnabled || false,
             numbersEnabled: numbersEnabled || false,
+            textCategory,
             persist: true
           },
           userId
@@ -442,7 +451,8 @@ const gameController = {
         wordCount,
         timeMax,
         punctuationEnabled,
-        numbersEnabled
+        numbersEnabled,
+        textCategory
       });
 
       res.json({

@@ -58,6 +58,11 @@ const resultSchema = new Schema(
     wordCount: {
       type: Number,
     },
+    // Passage category of a phrases run (config/texts.js), else null.
+    textCategory: {
+      type: String,
+      default: null,
+    },
     // Set when the run was a daily challenge attempt ('YYYY-MM-DD').
     dailyDate: {
       type: String,
