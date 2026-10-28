@@ -2,7 +2,9 @@
  * Live race configuration. All race timing is decided by the server.
  */
 export const RACE_MIN_PLAYERS = 2;
-export const RACE_MAX_PLAYERS = 4;
+// Rooms hold up to RACE_MAX_PLAYERS; the host can set a lower cap.
+export const RACE_MAX_PLAYERS = 8;
+export const RACE_DEFAULT_MAX_PLAYERS = 4;
 export const RACE_WORD_COUNTS = Object.freeze([25, 50, 75]);
 export const RACE_NAME_MAX_LENGTH = 40;
 
@@ -36,3 +38,24 @@ export const RACE_INVITE_COOLDOWN_MS = 10_000;
 export const RACE_MAX_FAILED_JOINS_PER_MINUTE = 10;
 export const RACE_MAX_SOCKETS_PER_USER = 3;
 export const RACE_TICK_MS = 250;
+
+// Quick match: queued players are put in a rated public room once enough
+// are waiting, or once the first has waited long enough and there are two.
+export const QUICK_MATCH_WORD_COUNT = 50;
+export const QUICK_MATCH_MAX_PLAYERS = 6;
+export const QUICK_MATCH_WAIT_MS = 5000;
+// Players further apart than this in rating only meet after waiting longer.
+export const QUICK_MATCH_RATING_SPREAD = 300;
+export const QUICK_MATCH_WIDEN_AFTER_MS = 20_000;
+
+// Race rating (Elo over every pair of racers in a rated room).
+export const RATING_START = 1000;
+export const RATING_K = 32;
+
+// Spectators per room.
+export const RACE_MAX_SPECTATORS = 20;
+
+// Chat: short messages, one per CHAT_COOLDOWN_MS per user; emotes from a fixed set.
+export const CHAT_MAX_LENGTH = 140;
+export const CHAT_COOLDOWN_MS = 1000;
+export const RACE_EMOTES = Object.freeze(['wave', 'fire', 'laugh', 'wow', 'clap', 'gg']);

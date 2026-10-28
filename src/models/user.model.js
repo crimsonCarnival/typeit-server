@@ -107,6 +107,15 @@ const userSchema = new Schema(
         type: Number,
         default: 0,
       },
+      // Quick-match rating (Elo) and how many rated races it rests on.
+      raceRating: {
+        type: Number,
+        default: 1000,
+      },
+      racesRated: {
+        type: Number,
+        default: 0,
+      },
       // Consecutive UTC days with at least one saved run (Week Streak badge).
       streak: {
         current: { type: Number, default: 0 },
@@ -174,6 +183,7 @@ const userSchema = new Schema(
 // Index for leaderboard queries
 userSchema.index({ 'stats.highScore': -1 });
 userSchema.index({ 'stats.bestWpm': -1 });
+userSchema.index({ 'stats.raceRating': -1 });
 userSchema.index({ role: 1 });
 userSchema.index({ status: 1 });
 

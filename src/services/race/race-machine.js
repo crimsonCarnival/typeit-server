@@ -1,6 +1,8 @@
 import {
   RACE_COUNTDOWN_MS,
+  RACE_DEFAULT_MAX_PLAYERS,
   RACE_MAX_PLAYERS,
+  RATING_K,
   RACE_MIN_PLAYERS,
   RACE_START_NOW_DELAY_MS,
   RACE_TIMEOUT_MS,
@@ -17,14 +19,18 @@ import {
  *     └── someone unreadies, leaves or cancels
  */
 
-export const createRoom = ({ code, host, name, wordCount, isPrivate, now }) => ({
+export const createRoom = ({ code, host, name, wordCount, isPrivate, maxPlayers = RACE_DEFAULT_MAX_PLAYERS, rated = false, now }) => ({
   code,
   name,
   hostId: host.userId,
   isPrivate: !!isPrivate,
   wordCount,
+  maxPlayers: Math.min(Math.max(maxPlayers, 2), RACE_MAX_PLAYERS),
+  // Quick-match rooms: results move ratings.
+  rated: !!rated,
   state: 'lobby',
   players: [newPlayer(host)],
+  spectators: [],
   text: null,
   startAt: null,
   finishedAt: null,
@@ -32,11 +38,12 @@ export const createRoom = ({ code, host, name, wordCount, isPrivate, now }) => (
   updatedAt: now,
 });
 
-const newPlayer = ({ userId, username, displayName, avatar }) => ({
+const newPlayer = ({ userId, username, displayName, avatar, rating = null }) => ({
   userId,
   username,
   displayName: displayName || username,
   avatar: avatar || '',
+  rating,
   ready: false,
   connected: true,
   index: 0,
@@ -66,7 +73,7 @@ export const joinRoom = (room, player, now) => {
     return null;
   }
   if (room.state !== 'lobby' && room.state !== 'countdown') return 'already-started';
-  if (room.players.length >= RACE_MAX_PLAYERS) return 'room-full';
+  if (room.players.length >= (room.maxPlayers ?? RACE_MAX_PLAYERS)) return 'room-full';
   room.players.push(newPlayer(player));
   // A newcomer isn't ready, so any countdown in progress stops.
   if (room.state === 'countdown') backToLobby(room);
@@ -210,6 +217,58 @@ export const finishRace = (room, now) => {
   room.winnerId = finishers.find((p) => p.result?.ranked)?.userId ?? null;
 };
 
+/**
+ * Rematch: a finished room goes back to the lobby with the same settings and
+ * the players still connected. Ratings and places start afresh.
+ */
+export const resetForRematch = (room, userId, now) => {
+  if (room.state !== 'finished') return 'not-finished';
+  if (!findPlayer(room, userId)) return 'not-in-room';
+  room.players = room.players
+    .filter((p) => p.connected)
+    // Ratings carry the last race's change into the rematch.
+    .map((p) => newPlayer({ ...p, rating: p.rating == null ? null : p.rating + (room.ratingChanges?.[p.userId] ?? 0) }));
+  if (!findPlayer(room, room.hostId)) room.hostId = room.players[0]?.userId ?? userId;
+  room.state = 'lobby';
+  room.text = null;
+  room.startAt = null;
+  room.finishedAt = null;
+  room.winnerId = null;
+  room.ratingChanges = null;
+  room.updatedAt = now;
+  return null;
+};
+
+/**
+ * Rating changes for a rated race. Every pair of racers is one Elo game:
+ * a verified finisher beats anyone placed after them or who didn't finish
+ * with a verified run; two non-finishers draw. K is shared out over the
+ * opponents so a bigger room doesn't swing ratings more. Pure.
+ *
+ * @param {Array<{userId:string, rating:number, place:number|null, verified:boolean}>} racers
+ * @returns {Map<string, number>} userId -> rating change (rounded)
+ */
+export const ratingChanges = (racers) => {
+  const changes = new Map(racers.map((r) => [r.userId, 0]));
+  if (racers.length < 2) return changes;
+  const k = RATING_K / (racers.length - 1);
+  // Unverified runs count as not finishing: rating can't be won with them.
+  const rank = (r) => (r.verified && r.place ? r.place : Infinity);
+  for (let i = 0; i < racers.length; i++) {
+    for (let j = i + 1; j < racers.length; j++) {
+      const a = racers[i];
+      const b = racers[j];
+      const expectedA = 1 / (1 + 10 ** ((b.rating - a.rating) / 400));
+      const scoreA = rank(a) < rank(b) ? 1 : rank(a) > rank(b) ? 0 : 0.5;
+      const delta = k * (scoreA - expectedA);
+      changes.set(a.userId, changes.get(a.userId) + delta);
+      changes.set(b.userId, changes.get(b.userId) - delta);
+    }
+  }
+  for (const [id, d] of changes) changes.set(id, Math.round(d));
+  return changes;
+};
+
 /** What a client may see. The text is withheld until the race starts. */
 export const publicRoom = (room, now) => ({
   code: room.code,
@@ -217,10 +276,15 @@ export const publicRoom = (room, now) => ({
   hostId: room.hostId,
   isPrivate: room.isPrivate,
   wordCount: room.wordCount,
+  maxPlayers: room.maxPlayers ?? RACE_MAX_PLAYERS,
+  rated: !!room.rated,
+  spectators: room.spectators?.length ?? 0,
   state: room.state,
   startAt: room.startAt,
   serverNow: now,
   text: room.state === 'racing' || room.state === 'finished' ? room.text : null,
   winnerId: room.winnerId,
   players: room.players.map(({ result, ...p }) => ({ ...p, ranked: result ? !!result.ranked : null })),
+  // Rating changes once a rated race is over (userId -> delta).
+  ratingChanges: room.ratingChanges ?? null,
 });

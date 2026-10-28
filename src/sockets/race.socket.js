@@ -14,7 +14,7 @@ import { connect, disconnect, handleMessage } from '../services/race/race-manage
 // Allowed fields per message type; anything else is rejected before it
 // reaches the race manager.
 const SHAPES = {
-  create: { name: 'string?', wordCount: 'number', isPrivate: 'boolean?' },
+  create: { name: 'string?', wordCount: 'number', isPrivate: 'boolean?', maxPlayers: 'number?' },
   join: { code: 'string' },
   leave: {},
   ready: { ready: 'boolean' },
@@ -22,6 +22,12 @@ const SHAPES = {
   startNow: {},
   invite: { userId: 'string' },
   list: {},
+  queue: {},
+  unqueue: {},
+  rematch: {},
+  spectate: { code: 'string' },
+  chat: { text: 'string' },
+  emote: { emote: 'string' },
 };
 
 const validShape = (msg) => {
@@ -40,13 +46,14 @@ const validShape = (msg) => {
 
 const authenticate = async (token) => {
   const { userId } = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
-  const user = await User.findById(userId).select('username displayName avatar status').lean();
+  const user = await User.findById(userId).select('username displayName avatar status stats.raceRating').lean();
   if (!user || user.status !== 'active') throw new Error('inactive');
   return {
     userId: user._id.toString(),
     username: user.username,
     displayName: user.displayName || user.username,
     avatar: user.avatar || '',
+    rating: user.stats?.raceRating ?? 1000,
   };
 };
 

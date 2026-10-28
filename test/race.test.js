@@ -214,7 +214,7 @@ describe('race socket', () => {
   let server;
   let url;
   const ORIGIN = 'http://localhost:4200';
-  const ids = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()];
+  const ids = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()];
 
   before(async () => {
     mock.method(User, 'findById', (id) => ({
@@ -326,5 +326,32 @@ describe('race socket', () => {
 
     a.ws.close();
     b.ws.close();
+  });
+
+  it('matches queued players into a rated race, with chat and spectators', { timeout: 15000 }, async () => {
+    const [a, b, c] = await Promise.all([open(), open(), open()]);
+    for (const [i, s] of [a, b, c].entries()) {
+      s.ws.send(JSON.stringify({ type: 'auth', token: jwt.sign({ userId: String(ids[i]) }, JWT_SECRET) }));
+      await waitFor(s.inbox, (m) => m.type === 'ready');
+    }
+    a.ws.send(JSON.stringify({ type: 'queue' }));
+    b.ws.send(JSON.stringify({ type: 'queue' }));
+    await waitFor(a.inbox, (m) => m.type === 'queue' && m.queued);
+    const matched = await waitFor(b.inbox, (m) => m.type === 'room' && m.room.rated, 8000);
+    assert.equal(matched.room.state, 'countdown');
+    assert.equal(matched.room.isPrivate, false);
+    assert.equal(matched.room.players.length, 2);
+
+    c.ws.send(JSON.stringify({ type: 'spectate', code: matched.room.code }));
+    await waitFor(c.inbox, (m) => m.type === 'room' && m.spectating);
+    await waitFor(a.inbox, (m) => m.type === 'room' && m.room.spectators === 1);
+
+    a.ws.send(JSON.stringify({ type: 'chat', text: 'good luck\u0000!' }));
+    const heard = await waitFor(c.inbox, (m) => m.type === 'chat');
+    assert.equal(heard.text, 'good luck !');
+    a.ws.send(JSON.stringify({ type: 'emote', emote: 'wave' }));
+    await waitFor(a.inbox, (m) => m.type === 'error' && m.code === 'chat-cooldown');
+
+    for (const s of [a, b, c]) s.ws.close();
   });
 });

@@ -31,4 +31,31 @@ router.get('/friends', auth, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/race/leaderboard
+ * Top quick-match ratings (players with at least one rated race).
+ */
+router.get('/leaderboard', async (req, res) => {
+  try {
+    const users = await User.find({ status: 'active', 'stats.racesRated': { $gt: 0 } })
+      .sort({ 'stats.raceRating': -1, 'stats.racesRated': -1 })
+      .limit(50)
+      .select('username displayName avatar stats.raceRating stats.racesRated stats.raceWins')
+      .lean();
+    const entries = users.map((u, i) => ({
+      rank: i + 1,
+      userId: u._id.toString(),
+      username: u.username,
+      displayName: u.displayName || u.username,
+      avatar: u.avatar || '',
+      rating: u.stats.raceRating,
+      races: u.stats.racesRated,
+      wins: u.stats.raceWins || 0,
+    }));
+    res.json({ success: true, data: { entries } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Could not load the race leaderboard' });
+  }
+});
+
 export default router;

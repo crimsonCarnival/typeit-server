@@ -6,7 +6,16 @@ import { gameEvents } from '../../events/game-events.js';
 import { generateText, startRaceSession } from '../game.service.js';
 import { syncAchievements } from '../achievement.service.js';
 import { areMutual } from '../follow.service.js';
+import { formMatches } from './matchmaking.js';
 import {
+  CHAT_COOLDOWN_MS,
+  CHAT_MAX_LENGTH,
+  QUICK_MATCH_MAX_PLAYERS,
+  QUICK_MATCH_WORD_COUNT,
+  RACE_EMOTES,
+  RACE_MAX_PLAYERS,
+  RACE_MAX_SPECTATORS,
+  RATING_START,
   RACE_CODE_ALPHABET,
   RACE_CODE_LENGTH,
   RACE_CODE_PREFIX,
@@ -27,7 +36,9 @@ import {
   joinRoom,
   leaveRoom,
   publicRoom,
+  ratingChanges,
   recordFinish,
+  resetForRematch,
   setReady,
   startNow,
   tick,
@@ -45,6 +56,9 @@ const roomOf = new Map(); // userId -> code
 const sockets = new Map(); // userId -> Set<ws>
 const lastInvite = new Map(); // `${from}|${to}` -> ms
 const failedJoins = new Map(); // userId -> timestamps of recent failed joins (per user, not per socket)
+const watching = new Map(); // userId -> code of the room they spectate
+const queue = new Map(); // userId -> { user, rating, at } waiting for a quick match
+const lastChat = new Map(); // userId -> ms
 
 const tooManyFailedJoins = (userId, now) => {
   const recent = (failedJoins.get(userId) ?? []).filter((t) => now - t < 60_000);
@@ -63,7 +77,11 @@ const sendTo = (userId, msg) => {
 const broadcast = (room, now = Date.now()) => {
   const view = publicRoom(room, now);
   for (const p of room.players) sendTo(p.userId, { type: 'room', room: view });
+  for (const id of room.spectators ?? []) sendTo(id, { type: 'room', room: view, spectating: true });
 };
+
+/** Players and spectators of a room. */
+const everyoneIn = (room) => [...room.players.map((p) => p.userId), ...(room.spectators ?? [])];
 
 const error = (userId, code) => sendTo(userId, { type: 'error', code });
 
@@ -82,6 +100,8 @@ const newCode = () => {
  * mapping so a reconnect lands back in the same lane.
  */
 const detach = (userId, now, { reconnectable = false } = {}) => {
+  queue.delete(userId);
+  stopWatching(userId, now);
   const code = roomOf.get(userId);
   const room = code && rooms.get(code);
   if (!room) {
@@ -95,17 +115,41 @@ const detach = (userId, now, { reconnectable = false } = {}) => {
   else broadcast(room, now);
 };
 
+/** Stops spectating, if the user was. */
+const stopWatching = (userId, now) => {
+  const code = watching.get(userId);
+  if (!code) return;
+  watching.delete(userId);
+  const room = rooms.get(code);
+  if (!room) return;
+  room.spectators = room.spectators.filter((id) => id !== userId);
+  broadcast(room, now);
+};
+
+/** Looks up the ratings of users who are about to race (quick match). */
+const ratingOf = async (userId) => {
+  const u = await User.findById(userId).select('stats.raceRating').lean();
+  return u?.stats?.raceRating ?? RATING_START;
+};
+
+/** Removes control characters and squeezes whitespace in a chat message. */
+export const cleanChat = (text) =>
+  typeof text === 'string' ? text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX_LENGTH) : '';
+
 /** Mutual follows count as friends (who can invite each other). */
 const areFriends = (a, b) => areMutual(a, b);
 
 // ---------------------------------------------------------------- actions
 
 const actions = {
-  create(user, { name, wordCount, isPrivate }, now) {
+  create(user, { name, wordCount, isPrivate, maxPlayers }, now) {
     if (!RACE_WORD_COUNTS.includes(wordCount)) return error(user.userId, 'bad-settings');
+    if (maxPlayers !== undefined && !(Number.isInteger(maxPlayers) && maxPlayers >= 2 && maxPlayers <= RACE_MAX_PLAYERS)) {
+      return error(user.userId, 'bad-settings');
+    }
     const roomName = typeof name === 'string' ? name.trim().slice(0, RACE_NAME_MAX_LENGTH) : '';
     detach(user.userId, now);
-    const room = createRoom({ code: newCode(), host: user, name: roomName || `${user.displayName}'s race`, wordCount, isPrivate, now });
+    const room = createRoom({ code: newCode(), host: user, name: roomName || `${user.displayName}'s race`, wordCount, isPrivate, maxPlayers, now });
     rooms.set(room.code, room);
     roomOf.set(user.userId, room.code);
     broadcast(room, now);
@@ -162,12 +206,104 @@ const actions = {
   },
 
   list(user) {
+    // Public lobbies to join, and public races under way to watch.
     const open = [...rooms.values()]
-      .filter((r) => !r.isPrivate && r.state === 'lobby')
-      .map((r) => ({ code: r.code, name: r.name, wordCount: r.wordCount, players: r.players.length }));
+      .filter((r) => !r.isPrivate && r.state !== 'finished')
+      .map((r) => ({
+        code: r.code,
+        name: r.name,
+        wordCount: r.wordCount,
+        players: r.players.length,
+        maxPlayers: r.maxPlayers ?? RACE_MAX_PLAYERS,
+        state: r.state,
+        rated: !!r.rated,
+      }));
     sendTo(user.userId, { type: 'rooms', rooms: open });
   },
+
+  /** Joins the quick-match queue (rated public races, matched by rating). */
+  async queue(user, _msg, now) {
+    detach(user.userId, now);
+    const rating = await ratingOf(user.userId);
+    queue.set(user.userId, { user: { ...user, rating }, userId: user.userId, rating, at: now });
+    sendTo(user.userId, { type: 'queue', queued: true, size: queue.size, rating });
+  },
+
+  unqueue(user) {
+    queue.delete(user.userId);
+    sendTo(user.userId, { type: 'queue', queued: false, size: queue.size });
+  },
+
+  /** Back to the lobby with the same players and settings once a race is over. */
+  rematch(user, _msg, now) {
+    withRoom(user, (room) => resetForRematch(room, user.userId, now), now);
+  },
+
+  /** Watches a room: public rooms by code from the list, private ones only with their code. */
+  spectate(user, { code }, now) {
+    if (tooManyFailedJoins(user.userId, now)) return error(user.userId, 'too-many-attempts');
+    const room = typeof code === 'string' && rooms.get(code.trim().toUpperCase());
+    if (!room) {
+      failedJoins.get(user.userId).push(now);
+      return error(user.userId, 'room-not-found');
+    }
+    if (findPlayer(room, user.userId)) return error(user.userId, 'already-racing');
+    if (room.spectators.length >= RACE_MAX_SPECTATORS) return error(user.userId, 'too-many-spectators');
+    detach(user.userId, now);
+    room.spectators.push(user.userId);
+    watching.set(user.userId, room.code);
+    broadcast(room, now);
+  },
+
+  chat(user, { text }, now) {
+    const message = cleanChat(text);
+    if (!message) return error(user.userId, 'empty-message');
+    say(user, { text: message }, now);
+  },
+
+  emote(user, { emote }, now) {
+    if (!RACE_EMOTES.includes(emote)) return error(user.userId, 'bad-emote');
+    say(user, { emote }, now);
+  },
 };
+
+/** Sends a chat line or emote to everyone in the sender's room. */
+function say(user, content, now) {
+  const code = roomOf.get(user.userId) ?? watching.get(user.userId);
+  const room = code && rooms.get(code);
+  if (!room) return error(user.userId, 'not-in-room');
+  if (now - (lastChat.get(user.userId) ?? 0) < CHAT_COOLDOWN_MS) return error(user.userId, 'chat-cooldown');
+  lastChat.set(user.userId, now);
+  const msg = { type: 'chat', from: { userId: user.userId, displayName: user.displayName }, ...content, at: now };
+  for (const id of everyoneIn(room)) sendTo(id, msg);
+}
+
+/** Puts a matched group in a new rated room and starts its countdown. */
+async function startQuickMatch(userIds, now) {
+  const entries = userIds.map((id) => queue.get(id)).filter(Boolean);
+  for (const e of entries) queue.delete(e.userId);
+  if (entries.length < RACE_MIN_PLAYERS) return;
+  const [host, ...rest] = entries.map((e) => e.user);
+  const room = createRoom({
+    code: newCode(),
+    host,
+    name: 'Quick match',
+    wordCount: QUICK_MATCH_WORD_COUNT,
+    isPrivate: false,
+    maxPlayers: QUICK_MATCH_MAX_PLAYERS,
+    rated: true,
+    now,
+  });
+  for (const u of rest) joinRoom(room, u, now);
+  rooms.set(room.code, room);
+  for (const p of room.players) {
+    roomOf.set(p.userId, room.code);
+    setReady(room, p.userId, true, now);
+  }
+  room.text = generateText('words', room.wordCount, false, false).text;
+  for (const p of room.players) sendTo(p.userId, { type: 'queue', queued: false, matched: room.code });
+  broadcast(room, now);
+}
 
 function withRoom(user, fn, now) {
   const room = rooms.get(roomOf.get(user.userId));
@@ -208,6 +344,8 @@ export const disconnect = (user, ws) => {
   set?.delete(ws);
   if (set && set.size === 0) {
     sockets.delete(user.userId);
+    queue.delete(user.userId);
+    stopWatching(user.userId, Date.now());
     detach(user.userId, Date.now(), { reconnectable: true });
   }
 };
@@ -227,11 +365,20 @@ const startRace = async (room) => {
 
 const persistRace = async (room) => {
   try {
+    const changes = room.rated
+      ? ratingChanges(room.players.map((p) => ({
+          userId: p.userId,
+          rating: p.rating ?? RATING_START,
+          place: p.place,
+          verified: !!p.result?.ranked,
+        })))
+      : null;
     await Race.create({
       code: room.code,
       name: room.name,
       hostId: room.hostId,
       isPrivate: room.isPrivate,
+      rated: !!room.rated,
       wordCount: room.wordCount,
       text: room.text,
       startAt: new Date(room.startAt),
@@ -245,8 +392,18 @@ const persistRace = async (room) => {
         accuracy: p.result?.accuracy ?? null,
         ranked: !!p.result?.ranked,
         resultId: p.result?.resultId ?? null,
+        ratingChange: changes ? changes.get(p.userId) : null,
       })),
     });
+    if (changes) {
+      await User.bulkWrite(
+        [...changes].map(([userId, delta]) => ({
+          updateOne: { filter: { _id: userId }, update: { $inc: { 'stats.raceRating': delta, 'stats.racesRated': 1 } } },
+        }))
+      );
+      room.ratingChanges = Object.fromEntries(changes);
+      broadcast(room);
+    }
     // A win only counts against at least one other racer.
     if (room.winnerId && room.players.length >= RACE_MIN_PLAYERS) {
       await User.updateOne({ _id: room.winnerId }, { $inc: { 'stats.raceWins': 1 } });
@@ -280,6 +437,9 @@ gameEvents.on('run:finished', ({ userId, session, results, resultId, ranked }) =
 
 const loop = setInterval(() => {
   const now = Date.now();
+  if (queue.size >= RACE_MIN_PLAYERS) {
+    for (const group of formMatches([...queue.values()], now)) void startQuickMatch(group, now);
+  }
   for (const [code, room] of rooms) {
     const transition = tick(room, now);
     if (transition === 'started') void startRace(room);
@@ -290,11 +450,13 @@ const loop = setInterval(() => {
     const idle = now - room.updatedAt;
     if ((room.state === 'lobby' && idle > RACE_LOBBY_IDLE_MS) || (room.state === 'finished' && idle > RACE_FINISHED_TTL_MS)) {
       for (const p of room.players) if (roomOf.get(p.userId) === code) roomOf.delete(p.userId);
+      for (const id of room.spectators ?? []) if (watching.get(id) === code) watching.delete(id);
       rooms.delete(code);
     }
   }
 }, RACE_TICK_MS);
 loop.unref();
 
-/** Test/admin helper. */
+/** Test/admin helpers. */
 export const _rooms = rooms;
+export const _queue = queue;
