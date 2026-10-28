@@ -103,6 +103,16 @@ const userSchema = new Schema(
         type: Number,
         default: 0,
       },
+      raceWins: {
+        type: Number,
+        default: 0,
+      },
+      // Consecutive UTC days with at least one saved run (Week Streak badge).
+      streak: {
+        current: { type: Number, default: 0 },
+        longest: { type: Number, default: 0 },
+        lastDate: { type: String, default: null }, // 'YYYY-MM-DD'
+      },
       byTime: {
         type: Map,
         of: bucketStatsSchema,

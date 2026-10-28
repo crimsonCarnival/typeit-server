@@ -5,6 +5,7 @@ import { connectDB } from './src/config/database.js';
 import { router as routes } from './src/routes/index.js';
 import { logger } from './src/middleware/logger.middleware.js';
 import { PORT, NODE_ENV, CORS_ORIGINS } from './src/config/env.js';
+import { attachRaceSocket } from './src/sockets/race.socket.js';
 
 const app = express();
 
@@ -15,14 +16,14 @@ app.set('trust proxy', 1);
 // Allow an explicit allowlist via CORS_ORIGINS; otherwise default to local dev
 // origins (localhost on any port + dev tunnels).
 const defaultOrigins = [/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/, /\.devtunnels\.ms$/];
+const isAllowedOrigin = (origin) =>
+  CORS_ORIGINS.length > 0
+    ? CORS_ORIGINS.includes(origin)
+    : defaultOrigins.some((pattern) => pattern.test(origin));
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    const allowed =
-      CORS_ORIGINS.length > 0
-        ? CORS_ORIGINS.includes(origin)
-        : defaultOrigins.some((pattern) => pattern.test(origin));
-    if (allowed) {
+    if (isAllowedOrigin(origin)) {
       return callback(null, true);
     }
     callback(new Error('Not allowed by CORS'));
@@ -31,7 +32,9 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.use(express.json());
+// Raised from the 100kb default: /game/end carries a keystroke log
+// (bounded by MAX_KEYSTROKES) plus per-second performance samples.
+app.use(express.json({ limit: '256kb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 app.use(logger);
@@ -40,9 +43,13 @@ app.use('/api', routes);
 
 // Start the HTTP server immediately; connect to MongoDB in the background so a
 // slow/unavailable database does not block the health endpoint.
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[server] listening on :${PORT} (${NODE_ENV})`);
 });
+
+// Live races share the HTTP port (WebSocket upgrade on /ws/race) with the
+// same origin policy as CORS.
+attachRaceSocket(server, isAllowedOrigin);
 
 connectDB().catch((err) => {
   console.error('[server] initial DB connection failed:', err?.message || err);

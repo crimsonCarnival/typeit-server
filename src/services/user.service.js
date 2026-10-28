@@ -1,5 +1,9 @@
 import User from '../models/user.model.js';
 import Result from '../models/result.model.js';
+import DailyAttempt from '../models/daily-attempt.model.js';
+import UserAchievement from '../models/user-achievement.model.js';
+import LessonProgress from '../models/lesson-progress.model.js';
+import WordList from '../models/word-list.model.js';
 import Session from '../models/session.model.js';
 
 /**
@@ -64,9 +68,15 @@ export const deleteAccount = async (userId) => {
   const result = await User.findByIdAndDelete(userId);
   if (!result) return false;
 
+  // Everything keyed to the player goes with the account. Finished races
+  // keep their entry (other racers' history) but it only holds the id.
   await Promise.allSettled([
     Session.deleteMany({ userId }),
     Result.deleteMany({ userId }),
+    DailyAttempt.deleteMany({ userId }),
+    UserAchievement.deleteMany({ userId }),
+    LessonProgress.deleteMany({ userId }),
+    WordList.deleteMany({ userId }),
   ]);
 
   return true;

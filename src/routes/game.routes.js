@@ -1,10 +1,13 @@
 import express from 'express';
 import gameController from '../controllers/game.controller.js';
+import errorMapController from '../controllers/error-map.controller.js';
 import { auth, optionalAuth } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
 router.post('/start', optionalAuth, gameController.startGame);
+router.post('/begin', auth, gameController.beginGame);
+router.post('/drill', auth, errorMapController.drill);
 router.get('/leaderboard', gameController.getLeaderboard);
 router.post('/end', optionalAuth, gameController.endGame);
 router.post('/reset', optionalAuth, gameController.resetGame);

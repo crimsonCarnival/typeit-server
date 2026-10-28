@@ -54,6 +54,17 @@ const resultSchema = new Schema(
     wordCount: {
       type: Number,
     },
+    // Set when the run was a daily challenge attempt ('YYYY-MM-DD').
+    dailyDate: {
+      type: String,
+      default: null,
+    },
+    // Modifier combination the run was played with; rankings never mix them.
+    modifiers: {
+      type: String,
+      enum: ['none', 'punctuation', 'numbers', 'both'],
+      default: 'none',
+    },
     timeMax: {
       type: Number,
       required: true,
@@ -105,6 +116,30 @@ const resultSchema = new Schema(
       default: false,
       index: true,
     },
+    // Run-integrity assessment (see config/integrity.js). Pre-existing results
+    // default to unranked with version 0: they were never assessed.
+    ranked: {
+      type: Boolean,
+      default: false,
+    },
+    integrityVersion: {
+      type: Number,
+      default: 0,
+    },
+    integrityFlags: {
+      type: [String],
+      default: [],
+    },
+    // Keystroke log as [gapMs, char] pairs ('' = backspace) and the per-key
+    // aggregates derived from it server-side (see keystroke.service.js).
+    // Stored as arrays rather than maps: Mongo keys can't hold '.' or '$'.
+    keystrokes: {
+      type: [Schema.Types.Mixed],
+      default: undefined,
+    },
+    keyPresses: [{ _id: false, key: String, count: Number }],
+    keyErrors: [{ _id: false, expected: String, typed: String, count: Number }],
+    digraphErrors: [{ _id: false, pair: String, count: Number }],
     userId: {
       type: Schema.Types.ObjectId,
       ref: 'User',
@@ -128,6 +163,8 @@ const resultSchema = new Schema(
 resultSchema.index({ score: -1 });
 resultSchema.index({ wpm: -1 });
 resultSchema.index({ gameMode: 1, score: -1 });
+// Rankings: best ranked run per player within one board.
+resultSchema.index({ ranked: 1, gameMode: 1, timeMax: 1, modifiers: 1, wpm: -1 });
 
 const Result = mongoose.model('Result', resultSchema);
 
