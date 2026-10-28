@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { formMatches } from '../src/services/race/matchmaking.js';
-import { createRoom, finishRace, joinRoom, ratingChanges, recordFinish, resetForRematch, setReady, tick, publicRoom } from '../src/services/race/race-machine.js';
+import { createRoom, finishRace, joinRoom, normalizeSettings, ratingChanges, recordFinish, resetForRematch, setReady, tick, publicRoom } from '../src/services/race/race-machine.js';
 import { cleanChat } from '../src/services/race/race-manager.js';
 import { _validShape } from '../src/sockets/race.socket.js';
 import { CHAT_MAX_LENGTH, QUICK_MATCH_MAX_PLAYERS, QUICK_MATCH_WAIT_MS, QUICK_MATCH_WIDEN_AFTER_MS, RACE_MAX_PLAYERS } from '../src/config/race.js';
@@ -60,7 +60,8 @@ describe('rooms', () => {
     const room = createRoom({ code: 'TYPE-AAAA', host: user('h'), name: 'x', wordCount: 25, maxPlayers: 2, now: 0 });
     assert.equal(joinRoom(room, user('a'), 0), null);
     assert.equal(joinRoom(room, user('b'), 0), 'room-full');
-    assert.equal(createRoom({ code: 'X', host: user('h'), wordCount: 25, maxPlayers: 99, now: 0 }).maxPlayers, RACE_MAX_PLAYERS);
+    assert.equal(normalizeSettings({ maxPlayers: RACE_MAX_PLAYERS }).maxPlayers, RACE_MAX_PLAYERS);
+    assert.equal(normalizeSettings({ maxPlayers: 99 }), null, 'the manager rejects a cap above the maximum');
   });
 
   it('rematches with the connected players and updated ratings', () => {

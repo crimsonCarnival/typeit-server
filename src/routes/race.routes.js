@@ -2,6 +2,7 @@ import express from 'express';
 import User from '../models/user.model.js';
 import { auth } from '../middleware/auth.middleware.js';
 import { isOnline } from '../services/race/race-manager.js';
+import { publicHandle, publicName } from '../utils/public-identity.js';
 import { getMutualIds } from '../services/follow.service.js';
 
 const router = express.Router();
@@ -19,8 +20,8 @@ router.get('/friends', auth, async (req, res) => {
     const friends = users
       .map((u) => ({
         userId: u._id.toString(),
-        username: u.username,
-        displayName: u.displayName || u.username,
+        username: publicHandle(u),
+        displayName: publicName(u),
         avatar: u.avatar || '',
         online: isOnline(u._id),
       }))
@@ -45,8 +46,8 @@ router.get('/leaderboard', async (req, res) => {
     const entries = users.map((u, i) => ({
       rank: i + 1,
       userId: u._id.toString(),
-      username: u.username,
-      displayName: u.displayName || u.username,
+      username: publicHandle(u),
+      displayName: publicName(u),
       avatar: u.avatar || '',
       rating: u.stats.raceRating,
       races: u.stats.racesRated,

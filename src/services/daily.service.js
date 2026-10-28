@@ -7,6 +7,7 @@ import { seededRandom } from '../utils/seeded-random.js';
 import { JWT_SECRET } from '../config/env.js';
 import { DAILY_HISTORY_DAYS, DAILY_LEADERS_LIMIT, DAILY_SETTINGS_POOL } from '../config/daily.js';
 import { rankEntries } from './ranking.service.js';
+import { publicHandle, publicName } from '../utils/public-identity.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -83,8 +84,8 @@ export const recordDailyFinish = (userId, date, { resultId, wpm, accuracy, ranke
 
 const publicUser = (u) => ({
   userId: u._id.toString(),
-  username: u.username,
-  displayName: u.displayName || u.username,
+  username: publicHandle(u),
+  displayName: publicName(u),
   avatar: u.avatar || '',
 });
 

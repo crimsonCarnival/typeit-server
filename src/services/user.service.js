@@ -6,6 +6,7 @@ import LessonProgress from '../models/lesson-progress.model.js';
 import DigraphReview from '../models/digraph-review.model.js';
 import WordList from '../models/word-list.model.js';
 import Session from '../models/session.model.js';
+import { USERNAME_PATTERN, publicHandle, publicName } from '../utils/public-identity.js';
 import { deleteFollowsOf, isFollowing } from './follow.service.js';
 
 export { followUser, unfollowUser, getFollowers, getFollowing } from './follow.service.js';
@@ -33,6 +34,10 @@ export const updateProfile = async (userId, updates) => {
     if (updates[key] !== undefined) {
       filteredUpdates[key] = updates[key];
     }
+  }
+
+  if (filteredUpdates.username !== undefined && !USERNAME_PATTERN.test(filteredUpdates.username)) {
+    throw new Error('Username must be 3-20 letters, numbers, dots, dashes or underscores');
   }
 
   // Check if username is taken (if updating username)
@@ -100,6 +105,9 @@ export const searchUsers = async (query, limit = 20) => {
   const pattern = escapeRegex(q);
   const users = await User.find({
     status: 'active',
+    // Accounts whose names are really emails are never matched or listed.
+    username: { $not: /@/ },
+    displayName: { $not: /@/ },
     $or: [
       { username: { $regex: pattern, $options: 'i' } },
       { displayName: { $regex: pattern, $options: 'i' } },
@@ -112,8 +120,8 @@ export const searchUsers = async (query, limit = 20) => {
 
   return rankSearchResults(users, q).slice(0, limit).map((u) => ({
     id: u._id.toString(),
-    username: u.username,
-    displayName: u.displayName || u.username,
+    username: publicHandle(u),
+    displayName: publicName(u),
     avatar: u.avatar || '',
     bestWpm: u.stats?.bestWpm || 0,
     gamesPlayed: u.stats?.gamesPlayed || 0,
@@ -155,8 +163,8 @@ export const getPublicProfile = async (userId, viewerId = null) => {
 
   return {
     id: user._id,
-    displayName: user.displayName || user.username,
-    username: user.username,
+    displayName: publicName(user),
+    username: publicHandle(user),
     avatar: user.avatar,
     bio: user.bio || '',
     stats: user.stats,

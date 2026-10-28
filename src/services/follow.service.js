@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Follow from '../models/follow.model.js';
 import User from '../models/user.model.js';
+import { publicHandle, publicName } from '../utils/public-identity.js';
 
 export const FOLLOW_LIST_LIMIT = 100;
 const LIST_FIELDS = 'username displayName avatar stats.bestWpm';
@@ -81,7 +82,10 @@ const listSide = async (filter, otherSide, limit) => {
   const ids = edges.map((e) => e[otherSide]);
   const users = await User.find({ _id: { $in: ids }, status: 'active' }).select(LIST_FIELDS).lean();
   const byId = new Map(users.map((u) => [String(u._id), u]));
-  return ids.map((id) => byId.get(String(id))).filter(Boolean);
+  return ids
+    .map((id) => byId.get(String(id)))
+    .filter(Boolean)
+    .map((u) => ({ ...u, username: publicHandle(u), displayName: publicName(u) }));
 };
 
 /** Users that follow `userId`. */
