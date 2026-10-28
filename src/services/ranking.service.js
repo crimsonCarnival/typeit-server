@@ -59,6 +59,7 @@ const loadBoard = async ({ period, mode, time, modifiers }, now) => {
     {
       $group: {
         _id: '$userId',
+        resultId: { $first: '$_id' },
         wpm: { $first: '$wpm' },
         accuracy: { $first: '$accuracy' },
         achievedAt: { $first: '$createdAt' },
@@ -88,6 +89,8 @@ const loadBoard = async ({ period, mode, time, modifiers }, now) => {
     raceWins: row.user.stats?.raceWins || 0,
     wpm: row.wpm,
     accuracy: row.accuracy,
+    // The run behind the entry, for its replay.
+    resultId: row.resultId ? row.resultId.toString() : null,
     achievedAt: row.achievedAt,
   }));
 };

@@ -316,7 +316,7 @@ export const startDailySession = async (userId, challenge) => {
  * custom list). Practice text is marked as client-chosen so these runs are
  * saved but never ranked; `practice` says what to record when it finishes.
  */
-export const startPracticeSession = async (userId, { text, totalWords }, practice) => {
+export const startPracticeSession = async (userId, { text, totalWords }, practice, { timeMax } = {}) => {
   let session = await getSessionByUserId(userId);
   if (!session) {
     session = await createSession({ persist: true, gameMode: 'words' }, userId);
@@ -327,6 +327,7 @@ export const startPracticeSession = async (userId, { text, totalWords }, practic
     totalWords,
     gameMode: 'words',
     wordCount: totalWords,
+    ...(timeMax ? { timeMax } : {}),
     punctuationEnabled: false,
     numbersEnabled: false,
     textSource: 'client',
@@ -420,6 +421,7 @@ export const endGame = async (run, { typedText = '', elapsedMs, userId = null, m
     ...(replay.valid
       ? {
           keystrokes: run.keys,
+          text: run.text,
           keyPresses: replay.keyPresses,
           keyErrors: replay.keyErrors,
           digraphErrors: replay.digraphErrors,
@@ -441,6 +443,7 @@ export const endGame = async (run, { typedText = '', elapsedMs, userId = null, m
   const session = run;
 
   const savedResult = await gameResult.save();
+  results.resultId = savedResult._id.toString();
 
   const lessonId = session.practice?.kind === 'lesson'
     ? session.practice.id

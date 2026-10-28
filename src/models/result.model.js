@@ -177,6 +177,11 @@ const resultSchema = new Schema(
       type: [Schema.Types.Mixed],
       default: undefined,
     },
+    // The text the log was typed against, kept with it for replays and ghosts.
+    text: {
+      type: String,
+      default: undefined,
+    },
     keyPresses: [{ _id: false, key: String, count: Number }],
     keyErrors: [{ _id: false, expected: String, typed: String, count: Number }],
     digraphErrors: [{ _id: false, pair: String, count: Number }],
