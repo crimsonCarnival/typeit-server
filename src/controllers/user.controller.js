@@ -11,7 +11,8 @@ import {
   getFollowing,
 } from '../services/user.service.js';
 import { asString, clampInt, errorMessage } from '../utils/http.js';
-import { checkAvatar, checkOptionalString, checkTimezone, checkUsername } from '../utils/validate.js';
+import { checkAvatar, checkOptionalString, checkTimezone, checkUsername, parseSettingsPatch } from '../utils/validate.js';
+import User from '../models/user.model.js';
 
 const userController = {
   /**
@@ -45,6 +46,37 @@ const userController = {
    * Update current user profile
    * PATCH /api/users/profile
    */
+  /**
+   * GET /api/users/settings
+   * The caller's saved display and typing preferences.
+   */
+  getSettings: async (req, res) => {
+    try {
+      const user = await User.findById(req.userId).select('settings').lean();
+      if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+      res.json({ success: true, data: user.settings || {} });
+    } catch (error) {
+      res.status(500).json({ success: false, error: errorMessage(error) });
+    }
+  },
+
+  /**
+   * PATCH /api/users/settings
+   * Merges known settings into the caller's preferences.
+   */
+  updateSettings: async (req, res) => {
+    const parsed = parseSettingsPatch(req.body);
+    if (parsed.error) return res.status(400).json({ success: false, error: parsed.error });
+    try {
+      const sets = Object.fromEntries(Object.entries(parsed.settings).map(([k, v]) => [`settings.${k}`, v]));
+      const user = await User.findByIdAndUpdate(req.userId, { $set: sets }, { new: true }).select('settings').lean();
+      if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+      res.json({ success: true, data: user.settings || {} });
+    } catch (error) {
+      res.status(500).json({ success: false, error: errorMessage(error) });
+    }
+  },
+
   updateProfile: async (req, res) => {
     try {
       const { username, displayName, avatar, bio, timezone } = req.body || {};

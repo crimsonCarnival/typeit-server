@@ -143,6 +143,11 @@ const userSchema = new Schema(
       type: String,
       default: null,
     },
+    // Display and typing preferences (config/settings.js); validated on write.
+    settings: {
+      type: Schema.Types.Mixed,
+      default: () => ({}),
+    },
     lastSessionAt: {
       type: Date,
       default: null,

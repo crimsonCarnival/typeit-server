@@ -15,6 +15,8 @@ router.get('/search', rateLimit({ windowMs: 60 * 1000, max: 60 }), userControlle
 // Protected fixed routes (require authentication)
 router.get('/profile', auth, userController.getProfile);
 router.patch('/profile', auth, rateLimit({ windowMs: 60 * 1000, max: 20, perUser: true }), userController.updateProfile);
+router.get('/settings', auth, userController.getSettings);
+router.patch('/settings', auth, rateLimit({ windowMs: 60 * 1000, max: 60, perUser: true }), userController.updateSettings);
 router.delete('/account', auth, rateLimit({ windowMs: 60 * 60 * 1000, max: 5, perUser: true }), userController.deleteAccount);
 
 // Param routes (must be registered after fixed routes)

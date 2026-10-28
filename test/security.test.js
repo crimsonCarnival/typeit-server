@@ -57,3 +57,18 @@ describe('http helpers', () => {
     assert.equal(errorMessage(new Error('Username taken'), 409), 'Username taken');
   });
 });
+
+describe('settings validation', async () => {
+  const { parseSettingsPatch } = await import('../src/utils/validate.js');
+
+  it('accepts known settings with allowed values', () => {
+    assert.deepEqual(parseSettingsPatch({ theme: 'light', spaceSkips: true }).settings, { theme: 'light', spaceSkips: true });
+  });
+
+  it('rejects unknown keys, bad values and non-objects', () => {
+    assert.ok(parseSettingsPatch({ theme: 'neon' }).error);
+    assert.ok(parseSettingsPatch({ $set: { role: 'admin' } }).error);
+    assert.ok(parseSettingsPatch(['theme']).error);
+    assert.ok(parseSettingsPatch(null).error);
+  });
+});

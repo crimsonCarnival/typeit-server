@@ -1,5 +1,6 @@
 import { CODE_LANGUAGES, TEXT_CATEGORIES, WORD_LANGUAGES } from '../config/texts.js';
 import { DIFFICULTIES, STOP_ON_ERROR } from '../config/gameplay.js';
+import { SETTINGS_SCHEMA } from '../config/settings.js';
 
 /**
  * Input rules for account fields. Kept as plain functions returning an error
@@ -138,6 +139,22 @@ export const parseGameSettings = (body = {}) => {
       if (!isIntIn(clientTotalWords, 1, CLIENT_TEXT_MAX)) return { error: 'Invalid word total' };
       settings.clientTotalWords = clientTotalWords;
     }
+  }
+  return { settings };
+};
+
+/**
+ * Validates a partial settings update: known keys with allowed values only.
+ * Returns `{ error }` or `{ settings }`.
+ */
+export const parseSettingsPatch = (body) => {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'Settings must be an object' };
+  const settings = {};
+  for (const [key, value] of Object.entries(body)) {
+    const allowed = SETTINGS_SCHEMA[key];
+    if (!allowed) return { error: `Unknown setting: ${key}` };
+    if (!allowed.includes(value)) return { error: `Invalid value for ${key}` };
+    settings[key] = value;
   }
   return { settings };
 };
