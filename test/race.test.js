@@ -235,6 +235,40 @@ describe('race settings and modes', () => {
     assert.equal(updateSettings(r, 'u1', { wordCount: 50 }, r.startAt), 'already-started');
   });
 
+  it('accepts the phrases mode with a text category, and rejects unknown ones', () => {
+    const r = lobby();
+    assert.equal(updateSettings(r, 'u1', { mode: 'phrases', category: 'quotes' }, T0), null);
+    assert.deepEqual([r.mode, r.category], ['phrases', 'quotes']);
+    assert.equal(updateSettings(r, 'u1', { category: 'nope' }, T0), 'bad-settings');
+  });
+
+  it('does not let the host change the rules of a rated room', () => {
+    const r = createRoom({ code: 'TYPE-RATE', host: player(1), name: 'Quick match', isPrivate: false, rated: true, now: T0 });
+    assert.equal(updateSettings(r, 'u1', { mode: 'phrases', category: 'gta' }, T0), 'rated-room');
+  });
+
+  it('lets the first finisher win a casual (GTA) race even though runs are unranked', () => {
+    const r = lobby();
+    updateSettings(r, 'u1', { mode: 'phrases', category: 'gta' }, T0);
+    for (const id of ['u1', 'u2']) setReady(r, id, true, T0);
+    r.text = 'a b c';
+    tick(r, r.startAt);
+    recordFinish(r, 'u2', { wpm: 60, accuracy: 95, ranked: false, completed: true }, r.startAt + 5000);
+    recordFinish(r, 'u1', { wpm: 70, accuracy: 95, ranked: false, completed: true }, r.startAt + 6000);
+    assert.equal(r.winnerId, 'u2');
+  });
+
+  it('still needs a verified run to win a ranked-text phrases race', () => {
+    const r = lobby();
+    updateSettings(r, 'u1', { mode: 'phrases', category: 'classics' }, T0);
+    for (const id of ['u1', 'u2']) setReady(r, id, true, T0);
+    r.text = 'a b c';
+    tick(r, r.startAt);
+    recordFinish(r, 'u1', { wpm: 60, accuracy: 95, ranked: false, completed: true }, r.startAt + 5000);
+    recordFinish(r, 'u2', { wpm: 70, accuracy: 95, ranked: true, completed: true }, r.startAt + 6000);
+    assert.equal(r.winnerId, 'u2');
+  });
+
   it('ranks a timed race by WPM and ends at the limit plus grace', () => {
     const r = lobby(3);
     updateSettings(r, 'u1', { mode: 'time', timeLimit: 30 }, T0);

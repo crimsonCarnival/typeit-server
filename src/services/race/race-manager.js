@@ -218,6 +218,7 @@ const actions = {
         code: r.code,
         name: r.name,
         mode: r.mode,
+        category: r.category,
         wordCount: r.wordCount,
         timeLimit: r.timeLimit,
         players: r.players.length,
@@ -329,7 +330,11 @@ function withRoom(user, fn, now) {
   if (err) return error(user.userId, err);
   if (room.state === 'countdown' && !room.text) {
     // Pick the text as the countdown starts; it is only revealed at startAt.
-    room.text = generateText('words', textWords(room), room.punctuation, room.numbers).text;
+    const generated = room.mode === 'phrases'
+      ? generateText('phrases', 0, false, false, { textCategory: room.category })
+      : generateText('words', textWords(room), room.punctuation, room.numbers);
+    room.text = generated.text;
+    room.passage = generated.passage;
   }
   broadcast(room, now);
 }
@@ -378,7 +383,9 @@ const startRace = async (room) => {
         code: room.code,
         text: room.text,
         totalWords,
-        wordCount: room.mode === 'time' ? totalWords : room.wordCount,
+        wordCount: room.mode === 'words' ? room.wordCount : totalWords,
+        phrases: room.mode === 'phrases',
+        passage: room.passage ?? null,
         timeMax: room.mode === 'time' ? room.timeLimit : undefined,
         punctuation: room.punctuation,
         numbers: room.numbers,
@@ -406,6 +413,7 @@ const persistRace = async (room) => {
       hostId: room.hostId,
       isPrivate: room.isPrivate,
       mode: room.mode,
+      category: room.mode === 'phrases' ? room.category : null,
       rated: !!room.rated,
       wordCount: room.wordCount,
       timeLimit: room.timeLimit,
@@ -433,8 +441,11 @@ const persistRace = async (room) => {
       room.ratingChanges = Object.fromEntries(changes);
       broadcast(room);
     }
-    // A win only counts against at least one other racer.
-    if (room.winnerId && room.players.length >= RACE_MIN_PLAYERS) {
+    // A win only counts against at least one other racer, and only a verified
+    // run earns it: a casual-text race names a winner for the room, but its
+    // unranked runs don't count towards profile wins or badges.
+    const winner = room.players.find((p) => p.userId === room.winnerId);
+    if (winner?.result?.ranked && room.players.length >= RACE_MIN_PLAYERS) {
       await User.updateOne({ _id: room.winnerId }, { $inc: { 'stats.raceWins': 1 } });
       await syncAchievements(room.winnerId);
     }
