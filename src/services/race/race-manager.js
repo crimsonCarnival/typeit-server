@@ -441,8 +441,11 @@ const persistRace = async (room) => {
       room.ratingChanges = Object.fromEntries(changes);
       broadcast(room);
     }
-    // A win only counts against at least one other racer.
-    if (room.winnerId && room.players.length >= RACE_MIN_PLAYERS) {
+    // A win only counts against at least one other racer, and only a verified
+    // run earns it: a casual-text race names a winner for the room, but its
+    // unranked runs don't count towards profile wins or badges.
+    const winner = room.players.find((p) => p.userId === room.winnerId);
+    if (winner?.result?.ranked && room.players.length >= RACE_MIN_PLAYERS) {
       await User.updateOne({ _id: room.winnerId }, { $inc: { 'stats.raceWins': 1 } });
       await syncAchievements(room.winnerId);
     }

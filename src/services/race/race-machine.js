@@ -163,6 +163,8 @@ export const setReady = (room, userId, ready, now) => {
  */
 export const updateSettings = (room, userId, input, now) => {
   if (room.hostId !== userId) return 'not-host';
+  // Rated (quick-match) rooms keep their fixed rules; changing them would let a host steer ratings.
+  if (room.rated) return 'rated-room';
   if (room.state !== 'lobby' && room.state !== 'countdown') return 'already-started';
   const next = normalizeSettings(input, room);
   if (!next) return 'bad-settings';

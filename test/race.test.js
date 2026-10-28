@@ -242,6 +242,11 @@ describe('race settings and modes', () => {
     assert.equal(updateSettings(r, 'u1', { category: 'nope' }, T0), 'bad-settings');
   });
 
+  it('does not let the host change the rules of a rated room', () => {
+    const r = createRoom({ code: 'TYPE-RATE', host: player(1), name: 'Quick match', isPrivate: false, rated: true, now: T0 });
+    assert.equal(updateSettings(r, 'u1', { mode: 'phrases', category: 'gta' }, T0), 'rated-room');
+  });
+
   it('lets the first finisher win a casual (GTA) race even though runs are unranked', () => {
     const r = lobby();
     updateSettings(r, 'u1', { mode: 'phrases', category: 'gta' }, T0);
