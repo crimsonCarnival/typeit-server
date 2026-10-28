@@ -46,7 +46,7 @@ const gameController = {
         // A daily or practice run in progress outranks whatever settings the
         // client defaults to (after a reload, or when the run was started
         // from another page before the game initialised): resume it unchanged.
-        if (session && session.incomplete && (session.dailyDate || session.practice)) {
+        if (session && session.incomplete && (session.dailyDate || session.practice || session.raceCode)) {
           return res.json({ success: true, data: getState(session) });
         }
         if (session && session.incomplete) {

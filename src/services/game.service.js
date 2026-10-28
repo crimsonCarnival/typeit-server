@@ -8,6 +8,7 @@ import { analyzeKeystrokes } from './keystroke.service.js';
 import { recordDailyFinish } from './daily.service.js';
 import { recordPlayDay, syncAchievements } from './achievement.service.js';
 import { recordPracticeResult } from './learn.service.js';
+import { gameEvents } from '../events/game-events.js';
 import { INTEGRITY_FLAGS } from '../config/integrity.js';
 
 // Preset categories used to bucket stats. Values outside these are 'custom'.
@@ -214,6 +215,7 @@ export const getState = (session) => {
     totalWords: session.totalWords,
     dailyDate: session.dailyDate || null,
     practice: session.practice || null,
+    raceCode: session.raceCode || null,
     isAuthenticated: !!session.userId
   };
 };
@@ -257,6 +259,7 @@ export const createSession = async (options = {}, userId = null) => {
     startedAt: null,
     dailyDate: null,
     practice: null,
+    raceCode: null,
     incomplete: true
   };
 
@@ -376,6 +379,7 @@ export const startDailySession = async (userId, challenge) => {
     startedAt: null,
     dailyDate: challenge.date,
     practice: null,
+    raceCode: null,
     incomplete: true,
     resultsId: null,
   };
@@ -409,6 +413,38 @@ export const startPracticeSession = async (userId, { text, totalWords }, practic
     startedAt: null,
     dailyDate: null,
     practice,
+    raceCode: null,
+    incomplete: true,
+    resultsId: null,
+  });
+  return getState(updated);
+};
+
+/**
+ * Points a racer's session at the race text. The server fixes the start: the
+ * run is timed from the race's `startAt` for everyone, so no client can get a
+ * head start by reporting an earlier first keystroke.
+ */
+export const startRaceSession = async (userId, { code, text, totalWords, wordCount, startAt }) => {
+  let session = await getSessionByUserId(userId);
+  if (!session) {
+    session = await createSession({ persist: true, gameMode: 'words' }, userId);
+  }
+  const updated = await updateSession(session._id, {
+    text,
+    typedText: '',
+    totalWords,
+    gameMode: 'words',
+    wordCount,
+    // Generous limit; the race itself times out first (config/race.js).
+    timeMax: 600,
+    punctuationEnabled: false,
+    numbersEnabled: false,
+    textSource: 'server',
+    startedAt: new Date(startAt),
+    dailyDate: null,
+    practice: null,
+    raceCode: code,
     incomplete: true,
     resultsId: null,
   });
@@ -513,6 +549,16 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
     }
   }
 
+  if (session.raceCode) {
+    gameEvents.emit('run:finished', {
+      userId,
+      session,
+      results,
+      resultId: savedResult._id,
+      ranked: integrity.ranked,
+    });
+  }
+
   // Update user stats (keep this server-side so clients can't omit it)
   try {
     if (userId) {
@@ -611,7 +657,8 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
       typedText: typedText || '',
       incomplete: false,
       dailyDate: null,
-      practice: null
+      practice: null,
+      raceCode: null
     });
   } else {
     // No DB session exists for this run; persist one now that we have a result
@@ -701,6 +748,7 @@ export const resetSession = async (sessionId, options = {}) => {
     startedAt: null,
     dailyDate: null,
     practice: null,
+    raceCode: null,
     incomplete: true,
   });
 };
@@ -769,6 +817,7 @@ export const updateSettings = async (sessionId, settings) => {
     // Changing any setting abandons a daily or practice run.
     updates.dailyDate = null;
     updates.practice = null;
+    updates.raceCode = null;
     return await updateSession(sessionId, updates);
   }
 
@@ -808,6 +857,7 @@ export const migrateSession = async (userId, payload) => {
     startedAt: null,
     dailyDate: null,
     practice: null,
+    raceCode: null,
     incomplete: true,
     resultsId: null,
   };

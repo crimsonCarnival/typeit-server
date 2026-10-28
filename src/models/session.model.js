@@ -65,6 +65,11 @@ const sessionSchema = new Schema(
       ),
       default: null,
     },
+    // Invite code of the live race this session is running, else null.
+    raceCode: {
+      type: String,
+      default: null,
+    },
     // 'YYYY-MM-DD' while this session is playing that day's daily challenge.
     // Any reset or settings change clears it, ending the daily run.
     dailyDate: {
