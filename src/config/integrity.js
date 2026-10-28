@@ -7,7 +7,12 @@
  * Bump INTEGRITY_VERSION whenever the rules change so rankings can filter on
  * runs that were assessed under the current rules.
  */
-export const INTEGRITY_VERSION = 2;
+export const INTEGRITY_VERSION = 3;
+
+// Oldest assessment still trusted on the boards, per mode. Version 3 only
+// dropped a check (samples are server-derived now), so version 2 words runs
+// stand. Version 2 phrases runs were all on the retired GTA pool.
+export const MIN_RANKED_INTEGRITY_VERSION = Object.freeze({ words: 2, phrases: 3 });
 
 // Fastest sustained speed we accept as human. Top competitive typists sit
 // around 200-250 WPM on short tests; anything above is treated as automated.
@@ -33,9 +38,11 @@ export const MIN_GAP_CV = 0.1;
 
 export const INTEGRITY_FLAGS = Object.freeze({
   CLIENT_TEXT: 'client-text',
+  CASUAL_TEXT: 'casual-text',
   NO_SERVER_START: 'no-server-start',
   TIMING_MISMATCH: 'timing-mismatch',
   IMPLAUSIBLE_WPM: 'implausible-wpm',
+  // Retired in version 3: per-second samples are now derived by the server.
   PERFORMANCE_INCONSISTENT: 'performance-inconsistent',
   NO_KEYSTROKES: 'no-keystrokes',
   KEYSTROKES_INCONSISTENT: 'keystrokes-inconsistent',

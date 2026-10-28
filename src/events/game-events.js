@@ -5,6 +5,7 @@ import { EventEmitter } from 'events';
  * game.service importing them (the race manager imports game.service, so a
  * direct import back would be circular).
  *
+ * 'run:progress' -> { userId, code, index, accuracy }   (race runs, from POST /game/progress)
  * 'run:finished' -> { userId, session, results, resultId, ranked }
  */
 export const gameEvents = new EventEmitter();

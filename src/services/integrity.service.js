@@ -21,26 +21,24 @@ import {
  *
  * @param {object} run
  * @param {'server'|'client'} run.textSource  where the scored text came from
+ * @param {boolean} [run.casualText]         text from a casual pool (config/texts.js)
  * @param {Date|null} run.serverStartedAt      set by POST /game/begin
  * @param {Date} run.serverEndedAt             when /game/end was received
  * @param {number} run.clientElapsedMs         endTime - startTime from the client
  * @param {number} run.wpm
  * @param {number} run.rawWpm
- * @param {number} run.textLength             length of the scored text
- * @param {Array<{timestamp:number,currentIndex:number}>} run.performance
  * @param {string} run.typedText              final text submitted by the client
  * @param {ReturnType<import('./keystroke.service.js').analyzeKeystrokes>} run.keystrokes
  * @returns {{ ranked: boolean, flags: string[], integrityVersion: number }}
  */
 export const assessRun = ({
   textSource,
+  casualText = false,
   serverStartedAt,
   serverEndedAt,
   clientElapsedMs,
   wpm,
   rawWpm,
-  textLength,
-  performance = [],
   typedText,
   keystrokes,
 }) => {
@@ -48,6 +46,9 @@ export const assessRun = ({
 
   if (textSource !== 'server') {
     flags.push(INTEGRITY_FLAGS.CLIENT_TEXT);
+  }
+  if (casualText) {
+    flags.push(INTEGRITY_FLAGS.CASUAL_TEXT);
   }
 
   if (!serverStartedAt) {
@@ -62,10 +63,6 @@ export const assessRun = ({
 
   if (wpm > MAX_PLAUSIBLE_WPM || rawWpm > MAX_PLAUSIBLE_WPM) {
     flags.push(INTEGRITY_FLAGS.IMPLAUSIBLE_WPM);
-  }
-
-  if (!isPerformanceConsistent(performance, textLength, clientElapsedMs)) {
-    flags.push(INTEGRITY_FLAGS.PERFORMANCE_INCONSISTENT);
   }
 
   if (!keystrokes || keystrokes.count === 0) {
@@ -88,25 +85,4 @@ export const assessRun = ({
   }
 
   return { ranked: flags.length === 0, flags, integrityVersion: INTEGRITY_VERSION };
-};
-
-/**
- * The client samples progress once per second. Samples must move forward in
- * time, never beyond the run's duration, and never point past the end of the
- * text. (Not compared to the final typed length: backspacing at the end can
- * legitimately leave earlier samples ahead of it.)
- */
-const isPerformanceConsistent = (performance, textLength, clientElapsedMs) => {
-  if (!Array.isArray(performance)) return false;
-  const maxTimestamp = Math.ceil(clientElapsedMs / 1000) + 1;
-  let prevTimestamp = -Infinity;
-
-  for (const sample of performance) {
-    const { timestamp, currentIndex } = sample || {};
-    if (!Number.isFinite(timestamp) || !Number.isFinite(currentIndex)) return false;
-    if (timestamp < prevTimestamp || timestamp > maxTimestamp) return false;
-    if (currentIndex < 0 || currentIndex > textLength) return false;
-    prevTimestamp = timestamp;
-  }
-  return true;
 };

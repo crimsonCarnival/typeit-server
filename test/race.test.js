@@ -259,7 +259,9 @@ describe('race socket message validation', () => {
     assert.equal(_validShape({ type: 'create', mode: 'time', timeLimit: 30, maxPlayers: 6, punctuation: true }), true);
     assert.equal(_validShape({ type: 'settings', countdownSec: 10 }), true);
     assert.equal(_validShape({ type: 'settings', hostId: 'x' }), false);
-    assert.equal(_validShape({ type: 'progress', index: 3, extra: 1 }), false);
+    assert.equal(_validShape({ type: 'ready', ready: true, extra: 1 }), false);
+    // Progress comes from POST /game/progress (the server's replay), not the socket.
+    assert.equal(_validShape({ type: 'progress', index: 3 }), false);
     assert.equal(_validShape({ type: 'join', code: 'x'.repeat(101) }), false);
     assert.equal(_validShape({ type: 'nope' }), false);
     assert.equal(_validShape(null), false);
@@ -270,7 +272,7 @@ describe('race socket', () => {
   let server;
   let url;
   const ORIGIN = 'http://localhost:4200';
-  const ids = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()];
+  const ids = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()];
 
   before(async () => {
     mock.method(User, 'findById', (id) => ({
@@ -364,7 +366,7 @@ describe('race socket', () => {
     await waitFor(a.inbox, (m) => m.type === 'ready');
     await waitFor(b.inbox, (m) => m.type === 'ready');
 
-    a.ws.send(JSON.stringify({ type: 'progress', index: 1, bogus: true }));
+    a.ws.send(JSON.stringify({ type: 'ready', ready: true, bogus: true }));
     await waitFor(a.inbox, (m) => m.type === 'error' && m.code === 'bad-message');
 
     a.ws.send(JSON.stringify({ type: 'create', name: 'Test', wordCount: 25, isPrivate: true }));
@@ -382,5 +384,32 @@ describe('race socket', () => {
 
     a.ws.close();
     b.ws.close();
+  });
+
+  it('matches queued players into a rated race, with chat and spectators', { timeout: 15000 }, async () => {
+    const [a, b, c] = await Promise.all([open(), open(), open()]);
+    for (const [i, s] of [a, b, c].entries()) {
+      s.ws.send(JSON.stringify({ type: 'auth', token: jwt.sign({ userId: String(ids[i]) }, JWT_SECRET) }));
+      await waitFor(s.inbox, (m) => m.type === 'ready');
+    }
+    a.ws.send(JSON.stringify({ type: 'queue' }));
+    b.ws.send(JSON.stringify({ type: 'queue' }));
+    await waitFor(a.inbox, (m) => m.type === 'queue' && m.queued);
+    const matched = await waitFor(b.inbox, (m) => m.type === 'room' && m.room.rated, 8000);
+    assert.equal(matched.room.state, 'countdown');
+    assert.equal(matched.room.isPrivate, false);
+    assert.equal(matched.room.players.length, 2);
+
+    c.ws.send(JSON.stringify({ type: 'spectate', code: matched.room.code }));
+    await waitFor(c.inbox, (m) => m.type === 'room' && m.spectating);
+    await waitFor(a.inbox, (m) => m.type === 'room' && m.room.spectators === 1);
+
+    a.ws.send(JSON.stringify({ type: 'chat', text: 'good luck\u0000!' }));
+    const heard = await waitFor(c.inbox, (m) => m.type === 'chat');
+    assert.equal(heard.text, 'good luck !');
+    a.ws.send(JSON.stringify({ type: 'emote', emote: 'wave' }));
+    await waitFor(a.inbox, (m) => m.type === 'error' && m.code === 'chat-cooldown');
+
+    for (const s of [a, b, c]) s.ws.close();
   });
 });

@@ -1,11 +1,13 @@
 import express from 'express';
 import adminController from '../controllers/admin.controller.js';
 import { auth, adminOnly, modOrAdmin } from '../middleware/auth.middleware.js';
+import { requireObjectIdParam } from '../middleware/params.middleware.js';
 
 const router = express.Router();
 
 // All admin routes require authentication
 router.use(auth);
+router.param('userId', requireObjectIdParam('User not found'));
 
 // Dashboard (admin only)
 router.get('/dashboard', adminOnly, adminController.getDashboard);

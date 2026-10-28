@@ -1,4 +1,6 @@
 import { register, login, verifyToken } from '../services/auth.service.js';
+import { checkEmail, checkOptionalString, checkPassword, checkUsername } from '../utils/validate.js';
+import { errorMessage } from '../utils/http.js';
 
 /**
  * Public shape of a user returned to the client. Never includes password.
@@ -13,8 +15,9 @@ export const toPublicUser = (user) => ({
   role: user.role,
   timezone: user.timezone,
   stats: user.stats,
-  followers: user.followers?.length || 0,
-  following: user.following?.length || 0,
+  settings: user.settings || {},
+  followersCount: user.followersCount ?? 0,
+  followingCount: user.followingCount ?? 0,
   createdAt: user.createdAt,
 });
 
@@ -34,14 +37,15 @@ const authController = {
         });
       }
 
-      if (password.length < 6) {
-        return res.status(400).json({
-          success: false,
-          error: 'Password must be at least 6 characters',
-        });
+      const invalid = checkUsername(username)
+        ?? checkEmail(email)
+        ?? checkPassword(password)
+        ?? checkOptionalString(displayName, 'Display name', 30);
+      if (invalid) {
+        return res.status(400).json({ success: false, error: invalid });
       }
 
-      const result = await register(username, email, password, displayName);
+      const result = await register(username, email.trim().toLowerCase(), password, displayName);
 
       res.status(201).json({
         success: true,
@@ -51,7 +55,7 @@ const authController = {
       const status = error.message.includes('already') ? 409 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },
@@ -65,7 +69,7 @@ const authController = {
       const { email, username, password } = req.body;
       const identifier = email || username;
 
-      if (!identifier || !password) {
+      if (typeof identifier !== 'string' || typeof password !== 'string' || !identifier || !password) {
         return res.status(400).json({
           success: false,
           error: 'Email/username and password are required',
@@ -79,10 +83,12 @@ const authController = {
         data: result,
       });
     } catch (error) {
-      const status = error.message === 'Invalid credentials' ? 401 : 500;
+      const status = error.message === 'Invalid credentials'
+        ? 401
+        : error.message.startsWith('Account is') ? 403 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },
@@ -102,7 +108,7 @@ const authController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -115,7 +121,7 @@ const authController = {
     try {
       const { token } = req.body;
 
-      if (!token) {
+      if (typeof token !== 'string' || !token) {
         return res.status(400).json({
           success: false,
           error: 'Token is required',

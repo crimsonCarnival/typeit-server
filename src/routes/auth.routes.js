@@ -8,6 +8,6 @@ const router = express.Router();
 router.post('/register', rateLimit(), authController.register);
 router.post('/login', rateLimit(), authController.login);
 router.get('/me', auth, authController.me);
-router.post('/verify', authController.verify);
+router.post('/verify', rateLimit({ windowMs: 60 * 1000, max: 30 }), authController.verify);
 
 export default router;

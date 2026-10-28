@@ -9,7 +9,7 @@ import {
   regionFromTimezone,
   startOfUtcMonth,
 } from '../src/services/ranking.service.js';
-import { INTEGRITY_VERSION } from '../src/config/integrity.js';
+import { MIN_RANKED_INTEGRITY_VERSION } from '../src/config/integrity.js';
 import { RANKINGS_CACHE_TTL_MS } from '../src/config/rankings.js';
 
 const day = (d) => new Date(`2026-10-${String(d).padStart(2, '0')}T12:00:00Z`);
@@ -116,7 +116,7 @@ describe('getRankings', () => {
     await getRankings({ ...params, period: 'month', modifiers: 'both' }, day(15));
     const [{ $match }] = aggregate.mock.calls[0].arguments[0];
     assert.equal($match.ranked, true);
-    assert.deepEqual($match.integrityVersion, { $gte: INTEGRITY_VERSION });
+    assert.deepEqual($match.integrityVersion, { $gte: MIN_RANKED_INTEGRITY_VERSION[params.mode] });
     assert.equal($match.modifiers, 'both');
     assert.equal($match.createdAt.$gte.toISOString(), '2026-10-01T00:00:00.000Z');
   });

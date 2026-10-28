@@ -1,6 +1,8 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/user.model.js';
 import { JWT_SECRET } from '../config/env.js';
+import { JWT_VERIFY_OPTIONS } from '../services/auth.service.js';
+import { errorMessage } from '../utils/http.js';
 
 /**
  * Authentication middleware
@@ -18,7 +20,7 @@ export const auth = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
     const user = await User.findById(decoded.userId).select('-password');
 
     if (!user) {
@@ -54,7 +56,7 @@ export const auth = async (req, res, next) => {
     }
     return res.status(500).json({
       success: false,
-      error: error.message,
+      error: errorMessage(error),
     });
   }
 };
@@ -103,7 +105,7 @@ export const optionalAuth = async (req, res, next) => {
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, JWT_SECRET);
+      const decoded = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
       const user = await User.findById(decoded.userId).select('-password');
 
       if (user && user.status === 'active') {

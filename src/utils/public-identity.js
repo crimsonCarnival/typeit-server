@@ -1,12 +1,13 @@
 /**
  * What other players may see of a user. Some accounts used their email as
  * username or display name; those must never be shown publicly, so a
- * placeholder derived from the id stands in.
+ * placeholder derived from the id stands in. It contains `#`, which
+ * USERNAME_PATTERN rejects, so it can never collide with a real handle.
  */
 const hasAt = (value) => typeof value === 'string' && value.includes('@');
 
 export const publicHandle = (user) =>
-  hasAt(user.username) ? `player${String(user._id ?? user.id ?? '').slice(-4)}` : user.username;
+  hasAt(user.username) ? `player#${String(user._id ?? user.id ?? '').slice(-6)}` : user.username;
 
 export const publicName = (user) => (user.displayName && !hasAt(user.displayName) ? user.displayName : publicHandle(user));
 

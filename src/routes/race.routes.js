@@ -3,6 +3,7 @@ import User from '../models/user.model.js';
 import { auth } from '../middleware/auth.middleware.js';
 import { isOnline } from '../services/race/race-manager.js';
 import { publicHandle, publicName } from '../utils/public-identity.js';
+import { getMutualIds } from '../services/follow.service.js';
 
 const router = express.Router();
 
@@ -12,9 +13,7 @@ const router = express.Router();
  */
 router.get('/friends', auth, async (req, res) => {
   try {
-    const me = await User.findById(req.user._id).select('following followers').lean();
-    const followers = new Set((me?.followers ?? []).map(String));
-    const mutual = (me?.following ?? []).filter((id) => followers.has(String(id)));
+    const mutual = await getMutualIds(req.user._id);
     const users = await User.find({ _id: { $in: mutual }, status: 'active' })
       .select('username displayName avatar')
       .lean();
@@ -30,6 +29,33 @@ router.get('/friends', auth, async (req, res) => {
     res.json({ success: true, data: { friends } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Could not load friends' });
+  }
+});
+
+/**
+ * GET /api/race/leaderboard
+ * Top quick-match ratings (players with at least one rated race).
+ */
+router.get('/leaderboard', async (req, res) => {
+  try {
+    const users = await User.find({ status: 'active', 'stats.racesRated': { $gt: 0 } })
+      .sort({ 'stats.raceRating': -1, 'stats.racesRated': -1 })
+      .limit(50)
+      .select('username displayName avatar stats.raceRating stats.racesRated stats.raceWins')
+      .lean();
+    const entries = users.map((u, i) => ({
+      rank: i + 1,
+      userId: u._id.toString(),
+      username: publicHandle(u),
+      displayName: publicName(u),
+      avatar: u.avatar || '',
+      rating: u.stats.raceRating,
+      races: u.stats.racesRated,
+      wins: u.stats.raceWins || 0,
+    }));
+    res.json({ success: true, data: { entries } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Could not load the race leaderboard' });
   }
 });
 

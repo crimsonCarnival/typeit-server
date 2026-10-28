@@ -7,8 +7,9 @@ const id = '650000000000000000001234';
 describe('public identity', () => {
   it('hides names that are emails', () => {
     const user = { _id: id, username: 'steban@gmail.com', displayName: 'steban@gmail.com' };
-    assert.equal(publicHandle(user), 'player1234');
-    assert.equal(publicName(user), 'player1234');
+    assert.equal(publicHandle(user), 'player#001234');
+    assert.equal(publicName(user), 'player#001234');
+    assert.ok(!USERNAME_PATTERN.test(publicHandle(user)), 'placeholder is not a registrable handle');
   });
 
   it('keeps ordinary names and prefers the display name', () => {

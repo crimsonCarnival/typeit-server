@@ -5,5 +5,6 @@ import { auth } from '../middleware/auth.middleware.js';
 const router = express.Router();
 
 router.get('/', auth, errorMapController.get);
+router.get('/trends', auth, errorMapController.trends);
 
 export default router;

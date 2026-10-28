@@ -3,12 +3,13 @@ import Result from '../models/result.model.js';
 import DailyAttempt from '../models/daily-attempt.model.js';
 import UserAchievement from '../models/user-achievement.model.js';
 import LessonProgress from '../models/lesson-progress.model.js';
+import DigraphReview from '../models/digraph-review.model.js';
 import WordList from '../models/word-list.model.js';
 import Session from '../models/session.model.js';
 import { USERNAME_PATTERN, publicHandle, publicName } from '../utils/public-identity.js';
+import { deleteFollowsOf, isFollowing } from './follow.service.js';
 
-/** Replaces a user's names with their public forms (see utils/public-identity.js). */
-const withPublicIdentity = (u) => ({ ...u, username: publicHandle(u), displayName: publicName(u) });
+export { followUser, unfollowUser, getFollowers, getFollowing } from './follow.service.js';
 
 /**
  * Escapes regex-special characters in user input used for pattern matching.
@@ -85,6 +86,8 @@ export const deleteAccount = async (userId) => {
     UserAchievement.deleteMany({ userId }),
     LessonProgress.deleteMany({ userId }),
     WordList.deleteMany({ userId }),
+    DigraphReview.deleteMany({ userId }),
+    deleteFollowsOf(userId),
   ]);
 
   return true;
@@ -94,17 +97,54 @@ export const deleteAccount = async (userId) => {
  * Search users by username (public profiles only)
  */
 export const searchUsers = async (query, limit = 20) => {
-  if (!query || query.length < 2) {
+  const q = typeof query === 'string' ? query.trim().replace(/^@/, '') : '';
+  if (q.length < 2) {
     return [];
   }
 
-  // Names that are really emails are neither matched nor shown.
-  const match = (field) => ({ $and: [{ [field]: { $regex: escapeRegex(query), $options: 'i' } }, { [field]: { $not: /@/ } }] });
-  const users = await User.find({ status: 'active', $or: [match('username'), match('displayName')] })
-    .limit(limit)
-    .select('username displayName avatar stats.highScore stats.bestWpm stats.gamesPlayed')
+  const pattern = escapeRegex(q);
+  const users = await User.find({
+    status: 'active',
+    // Accounts whose names are really emails are never matched or listed.
+    username: { $not: /@/ },
+    displayName: { $not: /@/ },
+    $or: [
+      { username: { $regex: pattern, $options: 'i' } },
+      { displayName: { $regex: pattern, $options: 'i' } },
+    ],
+  })
+    // Fetch a few extra so the closest matches can be put first.
+    .limit(limit * 3)
+    .select('username displayName avatar stats.bestWpm stats.gamesPlayed followersCount')
     .lean();
-  return users.map(withPublicIdentity);
+
+  return rankSearchResults(users, q).slice(0, limit).map((u) => ({
+    id: u._id.toString(),
+    username: publicHandle(u),
+    displayName: publicName(u),
+    avatar: u.avatar || '',
+    bestWpm: u.stats?.bestWpm || 0,
+    gamesPlayed: u.stats?.gamesPlayed || 0,
+    followersCount: u.followersCount || 0,
+  }));
+};
+
+/**
+ * Orders search hits: exact username, then usernames starting with the
+ * query, then display names starting with it, then anything containing it;
+ * ties go to the more active player. Pure.
+ */
+export const rankSearchResults = (users, query) => {
+  const q = query.toLowerCase();
+  const score = (u) => {
+    const name = (u.username || '').toLowerCase();
+    const display = (u.displayName || '').toLowerCase();
+    if (name === q) return 0;
+    if (name.startsWith(q)) return 1;
+    if (display.startsWith(q)) return 2;
+    return 3;
+  };
+  return [...users].sort((a, b) => score(a) - score(b) || (b.stats?.gamesPlayed || 0) - (a.stats?.gamesPlayed || 0));
 };
 
 /**
@@ -116,9 +156,10 @@ export const getPublicProfile = async (userId, viewerId = null) => {
   const user = await User.findOne({
     _id: userId,
     status: 'active'
-  }).select('displayName username avatar bio stats createdAt followers following');
+  }).select('displayName username avatar bio stats createdAt followersCount followingCount');
 
   if (!user) return null;
+  const isOwner = viewerId ? String(viewerId) === String(user._id) : false;
 
   return {
     id: user._id,
@@ -128,88 +169,9 @@ export const getPublicProfile = async (userId, viewerId = null) => {
     bio: user.bio || '',
     stats: user.stats,
     createdAt: user.createdAt,
-    followersCount: user.followers.length,
-    followingCount: user.following.length,
-    isFollowing: viewerId
-      ? user.followers.some((id) => id.toString() === viewerId.toString())
-      : false,
-    isOwner: viewerId ? viewerId.toString() === user._id.toString() : false,
+    followersCount: user.followersCount ?? 0,
+    followingCount: user.followingCount ?? 0,
+    isFollowing: viewerId && !isOwner ? await isFollowing(viewerId, user._id) : false,
+    isOwner,
   };
-};
-
-/**
- * Makes `followerId` follow `targetId`.
- */
-export const followUser = async (followerId, targetId) => {
-  if (followerId.toString() === targetId.toString()) {
-    throw new Error('You cannot follow yourself');
-  }
-
-  const target = await User.findOne({ _id: targetId, status: 'active' });
-  if (!target) {
-    throw new Error('User not found');
-  }
-
-  await Promise.all([
-    User.findByIdAndUpdate(followerId, { $addToSet: { following: targetId } }),
-    User.findByIdAndUpdate(targetId, { $addToSet: { followers: followerId } }),
-  ]);
-
-  const [targetUser, follower] = await Promise.all([
-    User.findById(targetId).select('followers'),
-    User.findById(followerId).select('following'),
-  ]);
-
-  return {
-    isFollowing: true,
-    followersCount: targetUser.followers.length,
-    followingCount: follower.following.length,
-  };
-};
-
-/**
- * Makes `followerId` unfollow `targetId`.
- */
-export const unfollowUser = async (followerId, targetId) => {
-  if (followerId.toString() === targetId.toString()) {
-    throw new Error('You cannot unfollow yourself');
-  }
-
-  await Promise.all([
-    User.findByIdAndUpdate(followerId, { $pull: { following: targetId } }),
-    User.findByIdAndUpdate(targetId, { $pull: { followers: followerId } }),
-  ]);
-
-  const [targetUser, follower] = await Promise.all([
-    User.findById(targetId).select('followers'),
-    User.findById(followerId).select('following'),
-  ]);
-
-  return {
-    isFollowing: false,
-    followersCount: targetUser?.followers.length || 0,
-    followingCount: follower?.following.length || 0,
-  };
-};
-
-/**
- * Lists the users that follow `userId`.
- */
-export const getFollowers = async (userId) => {
-  const user = await User.findById(userId)
-    .select('followers')
-    .populate('followers', 'username displayName avatar stats.bestWpm');
-
-  return user ? user.followers.map((u) => withPublicIdentity(u.toObject())) : [];
-};
-
-/**
- * Lists the users that `userId` follows.
- */
-export const getFollowing = async (userId) => {
-  const user = await User.findById(userId)
-    .select('following')
-    .populate('following', 'username displayName avatar stats.bestWpm');
-
-  return user ? user.following.map((u) => withPublicIdentity(u.toObject())) : [];
 };

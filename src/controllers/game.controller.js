@@ -9,14 +9,70 @@ import {
   getState,
   getLeaderboard,
   generateText,
-  calculateResults,
   generateSessionId,
-  updateSession,
-  validateGameTiming,
-  migrateSession,
-  beginSession,
+  validateElapsed,
+  adoptGuestRun,
 } from '../services/game.service.js';
+import { appendKeys } from '../services/run.service.js';
+import { normaliseRules } from '../services/run-engine.js';
+import { deleteGuestRun, getGuestRun, putGuestRun } from '../services/run-store.service.js';
+import { gameEvents } from '../events/game-events.js';
 import Result from '../models/result.model.js';
+import { clampInt, errorMessage } from '../utils/http.js';
+import { CLIENT_TEXT_MAX, parseGameSettings } from '../utils/validate.js';
+
+const badRequest = (res, error) => res.status(400).json({ success: false, error });
+
+/** Keeps a guest run in memory so its keys can be streamed and scored. */
+const registerGuest = (state) => {
+  const sessionId = state.sessionId || generateSessionId();
+  putGuestRun(sessionId, { ...state, sessionId, userId: null, incomplete: true });
+  return { ...state, sessionId };
+};
+
+/** Creates a guest run from validated settings (server text unless the client brought its own). */
+const newGuestRun = ({ gameMode, wordCount = 50, timeMax = 120, punctuationEnabled = false, numbersEnabled = false, textCategory, language, codeLanguage, rules, clientText, clientTotalWords }) => {
+  const generated = clientText
+    ? { text: clientText, totalWords: clientTotalWords ?? clientText.trim().split(/\s+/).length, passage: null }
+    : generateText(gameMode, wordCount, punctuationEnabled, numbersEnabled, { textCategory, language, codeLanguage });
+  return registerGuest({
+    ...generated,
+    gameMode,
+    wordCount,
+    timeMax,
+    punctuationEnabled,
+    numbersEnabled,
+    textCategory,
+    language,
+    codeLanguage,
+    rules: normaliseRules(rules),
+    textSource: clientText ? 'client' : 'server',
+  });
+};
+
+/** The run a request refers to: the player's session, or a guest run by id. */
+const activeRun = async (req) => {
+  if (req.user?._id) {
+    const session = await getSessionByUserId(req.user._id);
+    return session && session.incomplete ? session : null;
+  }
+  const run = getGuestRun(req.body?.sessionId);
+  return run && !run.finished ? run : null;
+};
+
+/** Answers a failed key append (bad batch or offset mismatch); true if it answered. */
+const answerAppendFailure = (res, out) => {
+  if (out.error) {
+    badRequest(res, out.error);
+    return true;
+  }
+  if (out.conflict !== undefined) {
+    // The client resends from the offset the server holds.
+    res.status(409).json({ success: false, error: 'Key offset mismatch', data: { keyCount: out.conflict } });
+    return true;
+  }
+  return false;
+};
 
 /**
  * Game Controller - Handles HTTP request/response logic
@@ -31,9 +87,13 @@ const gameController = {
    */
   startGame: async (req, res) => {
     try {
-      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, persist, clientText, clientTotalWords } = req.body;
+      const parsed = parseGameSettings(req.body);
+      if (parsed.error) return badRequest(res, parsed.error);
+      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, language, codeLanguage, clientText, clientTotalWords } = parsed.settings;
+      const persist = req.body?.persist === true;
+      const { rules } = parsed.settings;
       const userId = req.user?._id || null;
-      const options = { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled };
+      const options = { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory, language, codeLanguage, rules };
       // When the client provides pre-generated text (phrases + non-default source),
       // forward it so createSession skips server-side text generation.
       if (clientText) {
@@ -57,7 +117,10 @@ const gameController = {
             session.wordCount !== options.wordCount ||
             session.punctuationEnabled !== options.punctuationEnabled ||
             session.numbersEnabled !== options.numbersEnabled ||
-            session.timeMax !== options.timeMax
+            session.timeMax !== options.timeMax ||
+            ['textCategory', 'language', 'codeLanguage'].some((f) => options[f] !== undefined && options[f] !== session[f]) ||
+            (options.rules !== undefined &&
+              JSON.stringify(normaliseRules({ ...(session.rules?.toObject?.() ?? {}), ...options.rules })) !== JSON.stringify(normaliseRules(session.rules)))
           ) {
             session = await resetSession(session._id, options);
           }
@@ -77,29 +140,43 @@ const gameController = {
       const session = await createSession({ ...options, persist }, userId);
       return res.json({
         success: true,
-        data: getState(session)
+        data: getState(registerGuest(session))
       });
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
 
   /**
-   * Marks the first keystroke of the current run on the server clock.
-   * POST /api/game/begin
+   * Streams the keys typed since the last call and answers with live stats.
+   * POST /api/game/progress  { sessionId? (guests), from, keys, elapsedMs, leadMs? }
+   *
+   * The first batch starts the run on the server clock. A `from` that doesn't
+   * match the keys the server holds answers 409 with the expected offset.
    */
-  beginGame: async (req, res) => {
+  progress: async (req, res) => {
     try {
-      const session = await beginSession(req.user._id);
-      if (!session) {
-        return res.status(400).json({ success: false, error: 'No active session. Please start a new game.' });
+      const run = await activeRun(req);
+      if (!run) return res.status(404).json({ success: false, error: 'No active run' });
+
+      const { from, keys, elapsedMs, leadMs } = req.body || {};
+      const out = await appendKeys(run, { from, keys, elapsedMs, leadMs });
+      if (answerAppendFailure(res, out)) return;
+
+      if (req.user?._id && run.raceCode) {
+        gameEvents.emit('run:progress', {
+          userId: String(req.user._id),
+          code: run.raceCode,
+          index: out.replay.position,
+          accuracy: out.live.accuracy,
+        });
       }
-      return res.json({ success: true });
+      return res.json({ success: true, data: { keyCount: out.keyCount, live: out.live } });
     } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
+      res.status(500).json({ success: false, error: errorMessage(error) });
     }
   },
 
@@ -142,86 +219,53 @@ const gameController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
 
   /**
-   * Ends the game and calculates final score (server-side validation)
-   * POST /api/game/end
-   *
-   * Authenticated users are only allowed to end games against a server-side
-   * session (created via /game/start with persist), so the scored text and
-   * timing are never trusted from the client. Unauthenticated games have no
-   * server state and are computed in-memory only.
+   * Ends the run. The server scores it from the keystroke log it holds (plus
+   * any last keys sent here); the client's own numbers are never used.
+   * POST /api/game/end  { sessionId? (guests), from, keys, typedText, elapsedMs }
    */
   endGame: async (req, res) => {
     try {
-      const { typedText, startTime, endTime, gameMode, wordCount, timeMax, text, totalWords, afkTime = 0, afkPeriods = 0, performance = [], penalty = 0, rawKeystrokes = 0, keystrokes = null } = req.body;
+      const { typedText, elapsedMs, from, keys = [] } = req.body || {};
       const userId = req.user?._id || null;
 
-      if (typeof typedText !== 'string') {
-        return res.status(400).json({ success: false, error: 'Typed text is required' });
+      if (typeof typedText !== 'string' || typedText.length > CLIENT_TEXT_MAX) {
+        return badRequest(res, 'Typed text is required');
       }
 
-      if (userId) {
-        const session = await getSessionByUserId(userId);
-        if (!session || !session.incomplete) {
-          return res.status(400).json({
-            success: false,
-            error: 'No active session. Please start a new game.'
-          });
-        }
+      let run = await activeRun(req);
+      if (!run) {
+        return res.status(400).json({ success: false, error: 'No active session. Please start a new game.' });
+      }
+      const timing = validateElapsed(elapsedMs, run.timeMax);
+      if (!timing.ok) return badRequest(res, timing.error);
 
-        const timing = validateGameTiming(startTime, endTime, session.timeMax);
-        if (!timing.ok) {
-          return res.status(400).json({ success: false, error: timing.error });
-        }
-        if (typedText.length > session.text.length) {
-          return res.status(400).json({
-            success: false,
-            error: 'Typed text cannot exceed the session text'
-          });
-        }
-
-        const results = await endGame(session, typedText, startTime, endTime, userId, afkTime, afkPeriods, Array.isArray(performance) ? performance : [], penalty, rawKeystrokes, false, keystrokes);
-        return res.json({ success: true, data: results });
+      if (from !== undefined) {
+        const out = await appendKeys(run, { from, keys, elapsedMs });
+        if (answerAppendFailure(res, out)) return;
+        run = out.run;
       }
 
-      // Unauthenticated users: validate and only calculate results (no DB writes)
-      if (!text || !totalWords) {
-        return res.status(400).json({
-          success: false,
-          error: 'Game data required'
+      const results = await endGame(run, { typedText, elapsedMs, userId });
+      if (!userId) {
+        // Kept so the run can be saved if the guest signs in now.
+        run.finished = { typedText, elapsedMs };
+        return res.json({
+          success: true,
+          data: results,
+          message: 'Game completed. Log in to save your score to your profile.'
         });
       }
-
-      const effectiveTimeMax = timeMax || 120;
-      const timing = validateGameTiming(startTime, endTime, effectiveTimeMax);
-      if (!timing.ok) {
-        return res.status(400).json({ success: false, error: timing.error });
-      }
-
-      const tempSession = {
-        text,
-        totalWords,
-        timeMax: effectiveTimeMax,
-        gameMode,
-        wordCount
-      };
-
-      const results = calculateResults(tempSession, typedText, startTime, endTime, afkTime, afkPeriods, Array.isArray(performance) ? performance : [], penalty, rawKeystrokes);
-
-      res.json({
-        success: true,
-        data: results,
-        message: 'Game completed. Log in to save your score to your profile.'
-      });
+      return res.json({ success: true, data: results });
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
@@ -233,7 +277,9 @@ const gameController = {
   resetGame: async (req, res) => {
     try {
       const userId = req.user?._id || null;
-      const { wordCount, gameMode, timeMax, punctuationEnabled, numbersEnabled, clientText, clientTotalWords } = req.body;
+      const parsed = parseGameSettings(req.body);
+      if (parsed.error) return badRequest(res, parsed.error);
+      const { wordCount, gameMode, timeMax, punctuationEnabled, numbersEnabled, textCategory, language, codeLanguage, clientText, clientTotalWords } = parsed.settings;
 
       // For authenticated users, look up and reset their session
       if (userId) {
@@ -245,6 +291,10 @@ const gameController = {
             timeMax,
             punctuationEnabled,
             numbersEnabled,
+            textCategory,
+            language,
+            codeLanguage,
+            rules: parsed.settings.rules,
             clientText,
             clientTotalWords
           });
@@ -255,45 +305,13 @@ const gameController = {
         }
       }
 
-      // For unauthenticated sessions, generate text based on request body
-      if (!gameMode) {
-        return res.status(400).json({
-          success: false,
-          error: 'Game settings required'
-        });
-      }
-
-      const { text, totalWords } = generateText(
-        gameMode,
-        wordCount || 50,
-        punctuationEnabled || false,
-        numbersEnabled || false
-      );
-
-      const newSessionData = {
-        text,
-        gameMode,
-        wordCount: wordCount || 50,
-        punctuationEnabled: punctuationEnabled || false,
-        numbersEnabled: numbersEnabled || false,
-        timeMax: timeMax || 120,
-        totalWords,
-        userId, // Include userId so isAuthenticated is set correctly
-      };
-
-      // Only generate a transient sessionId for unauthenticated flows when requested
-      if (!req.body?.noSession) {
-        newSessionData.sessionId = generateSessionId();
-      }
-
-      res.json({
-        success: true,
-        data: getState(newSessionData)
-      });
+      // Guests: a fresh run held in memory until it is scored.
+      if (!gameMode) return badRequest(res, 'Game settings required');
+      res.json({ success: true, data: getState(newGuestRun(parsed.settings)) });
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
@@ -305,7 +323,9 @@ const gameController = {
   refreshText: async (req, res) => {
     try {
       const userId = req.user?._id || null;
-      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled } = req.body;
+      const parsed = parseGameSettings(req.body);
+      if (parsed.error) return badRequest(res, parsed.error);
+      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory } = parsed.settings;
 
       // For authenticated users, look up and refresh their session
       if (userId) {
@@ -319,44 +339,13 @@ const gameController = {
         }
       }
 
-      // For unauthenticated sessions, generate text based on request body
-      if (!gameMode) {
-        return res.status(400).json({
-          success: false,
-          error: 'Game settings required'
-        });
-      }
-
-      const { text, totalWords } = generateText(
-        gameMode,
-        wordCount || 50,
-        punctuationEnabled || false,
-        numbersEnabled || false
-      );
-
-      const newSessionData = {
-        text,
-        gameMode,
-        wordCount: wordCount || 50,
-        punctuationEnabled: punctuationEnabled || false,
-        numbersEnabled: numbersEnabled || false,
-        timeMax: timeMax || 120,
-        totalWords,
-        userId, // Include userId so isAuthenticated is set correctly
-      };
-
-      if (!req.body?.noSession) {
-        newSessionData.sessionId = generateSessionId();
-      }
-
-      res.json({
-        success: true,
-        data: getState(newSessionData)
-      });
+      // Guests: a fresh run held in memory until it is scored.
+      if (!gameMode) return badRequest(res, 'Game settings required');
+      res.json({ success: true, data: getState(newGuestRun(parsed.settings)) });
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
@@ -368,7 +357,9 @@ const gameController = {
   updateSettings: async (req, res) => {
     try {
       const userId = req.user?._id || null;
-      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled } = req.body;
+      const parsed = parseGameSettings(req.body);
+      if (parsed.error) return badRequest(res, parsed.error);
+      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, textCategory } = parsed.settings;
 
       if (!userId) {
         return res.status(400).json({
@@ -388,6 +379,9 @@ const gameController = {
             timeMax: timeMax || 120,
             punctuationEnabled: punctuationEnabled || false,
             numbersEnabled: numbersEnabled || false,
+            textCategory,
+            language: parsed.settings.language,
+            codeLanguage: parsed.settings.codeLanguage,
             persist: true
           },
           userId
@@ -403,7 +397,11 @@ const gameController = {
         wordCount,
         timeMax,
         punctuationEnabled,
-        numbersEnabled
+        numbersEnabled,
+        textCategory,
+        language: parsed.settings.language,
+        codeLanguage: parsed.settings.codeLanguage,
+        rules: parsed.settings.rules
       });
 
       res.json({
@@ -414,51 +412,8 @@ const gameController = {
       console.error('Error updating settings:', error);
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
-    }
-  },
-
-  /**
-   * Saves session state (heartbeat) for authenticated users
-   * PATCH /api/game/session
-   */
-  saveSessionState: async (req, res) => {
-    try {
-      const userId = req.user?._id || null;
-      if (!userId) {
-        return res.status(401).json({ success: false, error: 'Authentication required' });
-      }
-
-      const { currentIndex, typedText, timeLeft, isTyping, currentText } = req.body;
-
-      const session = await getSessionByUserId(userId);
-      if (!session) {
-        return res.status(404).json({ success: false, error: 'Session not found' });
-      }
-
-      const updates = {};
-      if (currentIndex !== undefined) updates.currentIndex = currentIndex;
-      if (typedText !== undefined) updates.typedText = typedText;
-      if (timeLeft !== undefined) updates.timeLeft = timeLeft;
-      if (isTyping !== undefined) updates.isTyping = isTyping;
-      if (currentText !== undefined) updates.currentText = currentText;
-
-      if (Object.keys(updates).length === 0) {
-        return res.json({ success: true, data: getState(session) });
-      }
-
-      // Mark as incomplete while client is actively working on it, but never
-      // reopen a session that already has a saved result (a heartbeat racing
-      // with endGame must not resurrect a completed game).
-      if (!session.resultsId) {
-        updates.incomplete = true;
-      }
-
-      const updated = await updateSession(session._id, updates);
-      return res.json({ success: true, data: getState(updated) });
-    } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
     }
   },
 
@@ -494,77 +449,42 @@ const gameController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
 
   /**
-   * Migrates a guest game into the authenticated user's account.
-   * POST /api/game/migrate
+   * Carries a guest run into the signed-in player's account.
+   * POST /api/game/migrate  { guestSessionId }
    *
-   * Two payload shapes:
-   * - `incomplete: true`: adopt the guest's in-progress session (text, typed
-   *   progress, settings) so the player can continue where they left off.
-   * - `endData`: persist the guest's already-finished game (raw inputs are
-   *   re-validated and re-scored server-side) as a result + session.
+   * A finished guest run is scored again from its log and saved as a result;
+   * one still in progress becomes the player's session (keys and clock kept).
+   * Both count as client text, so they are never ranked.
    */
   migrateGame: async (req, res) => {
     try {
-      const userId = req.user?._id;
-      if (!userId) {
-        return res.status(401).json({ success: false, error: 'Authentication required' });
-      }
+      const userId = req.user._id;
+      const guest = getGuestRun(req.body?.guestSessionId);
+      if (!guest) return res.status(404).json({ success: false, error: 'Guest run expired' });
 
-      const payload = req.body || {};
-
-      if (payload.incomplete) {
-        const state = await migrateSession(userId, payload);
-        if (!state) {
-          return res.status(400).json({ success: false, error: 'Invalid game data' });
-        }
-        return res.json({ success: true, data: state });
-      }
-
-      if (payload.endData) {
-        const endData = payload.endData;
-        const timing = validateGameTiming(endData.startTime, endData.endTime, payload.timeMax || 120);
-        if (!timing.ok) {
-          return res.status(400).json({ success: false, error: timing.error });
-        }
-        if (typeof payload.typedText !== 'string' || payload.typedText.length > (payload.text || '').length) {
-          return res.status(400).json({ success: false, error: 'Invalid typed text' });
-        }
-
-        const tempSession = {
-          text: payload.text,
-          totalWords: payload.totalWords,
-          timeMax: payload.timeMax || 120,
-          gameMode: payload.gameMode,
-          wordCount: payload.wordCount,
-        };
-
-        const results = await endGame(
-          tempSession,
-          payload.typedText,
-          endData.startTime,
-          endData.endTime,
+      if (guest.finished) {
+        const run = { ...guest, textSource: 'client' };
+        const results = await endGame(run, {
+          typedText: guest.finished.typedText,
+          elapsedMs: guest.finished.elapsedMs,
           userId,
-          endData.afkTime || 0,
-          endData.afkPeriods || 0,
-          Array.isArray(endData.performance) ? endData.performance : [],
-          endData.penalty || 0,
-          endData.rawKeystrokes || 0,
-          true, // migrated = true: this result originated from a guest session
-          endData.keystrokes || null
-        );
-
+          migrated: true,
+        });
+        deleteGuestRun(guest.sessionId);
         return res.json({ success: true, data: { results } });
       }
 
-      return res.status(400).json({ success: false, error: 'Invalid migration data' });
+      const state = await adoptGuestRun(userId, guest);
+      deleteGuestRun(guest.sessionId);
+      return res.json({ success: true, data: state });
     } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
+      res.status(500).json({ success: false, error: errorMessage(error) });
     }
   },
 
@@ -575,7 +495,8 @@ const gameController = {
   getLeaderboard: async (req, res) => {
     try {
       const { limit = 10, gameMode } = req.query;
-      const leaderboard = await getLeaderboard(parseInt(limit), gameMode || null);
+      const mode = gameMode === 'words' || gameMode === 'phrases' ? gameMode : null;
+      const leaderboard = await getLeaderboard(clampInt(limit, 10, 1, 100), mode);
 
       res.json({
         success: true,
@@ -584,7 +505,7 @@ const gameController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   }

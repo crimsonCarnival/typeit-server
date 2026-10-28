@@ -18,7 +18,7 @@ const sessionSchema = new Schema(
     },
     gameMode: {
       type: String,
-      enum: ['phrases', 'words'],
+      enum: ['phrases', 'words', 'code'],
       default: 'phrases',
     },
     wordCount: {
@@ -41,12 +41,66 @@ const sessionSchema = new Schema(
       type: Number,
       default: 0,
     },
+    // Phrases-mode passage category (config/texts.js) and the passage the
+    // current text came from, shown as attribution. Null in words mode.
+    textCategory: {
+      type: String,
+      default: 'classics',
+    },
+    // Words mode language and code mode language (config/texts.js).
+    language: {
+      type: String,
+      default: 'english',
+    },
+    codeLanguage: {
+      type: String,
+      default: 'javascript',
+    },
+    passage: {
+      type: new Schema(
+        {
+          category: { type: String, required: true },
+          title: { type: String, default: null },
+          author: { type: String, default: '' },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
     // 'client' when the player supplied the text (custom sources, guest
     // migration); such runs are never ranked.
     textSource: {
       type: String,
       enum: ['server', 'client'],
       default: 'server',
+    },
+    // Typing rules for this run (config/gameplay.js).
+    rules: {
+      type: new Schema(
+        {
+          difficulty: { type: String, enum: ['normal', 'hardcore'], default: 'normal' },
+          stopOnError: { type: String, enum: ['off', 'letter', 'word'], default: 'off' },
+          spaceSkips: { type: Boolean, default: false },
+        },
+        { _id: false }
+      ),
+      default: () => ({}),
+    },
+    // Keystroke log of the run in progress, streamed by POST /game/progress
+    // as [gapMs, char] pairs. `keyCount` mirrors its length so appends can be
+    // made conditional on what the client last saw.
+    keys: {
+      type: [Schema.Types.Mixed],
+      default: [],
+    },
+    keyCount: {
+      type: Number,
+      default: 0,
+    },
+    // Time from the run's start to its first key (races start before anyone types).
+    leadMs: {
+      type: Number,
+      default: 0,
     },
     // Server clock at the first keystroke (POST /game/begin); cleared on reset.
     startedAt: {
@@ -58,7 +112,7 @@ const sessionSchema = new Schema(
     practice: {
       type: new Schema(
         {
-          kind: { type: String, enum: ['drill', 'lesson', 'common-words', 'list'], required: true },
+          kind: { type: String, enum: ['drill', 'lesson', 'common-words', 'list', 'ghost', 'weak-keys', 'review'], required: true },
           id: { type: String, default: null },
         },
         { _id: false }

@@ -1,5 +1,5 @@
 import Result from '../models/result.model.js';
-import { INTEGRITY_VERSION } from '../config/integrity.js';
+import { MIN_RANKED_INTEGRITY_VERSION } from '../config/integrity.js';
 import { RANKINGS_CACHE_TTL_MS, REGION_BY_TZ_AREA } from '../config/rankings.js';
 import { publicHandle, publicName } from '../utils/public-identity.js';
 
@@ -46,7 +46,7 @@ export const clearRankingsCache = () => boardCache.clear();
 const loadBoard = async ({ period, mode, time, modifiers }, now) => {
   const match = {
     ranked: true,
-    integrityVersion: { $gte: INTEGRITY_VERSION },
+    integrityVersion: { $gte: MIN_RANKED_INTEGRITY_VERSION[mode] ?? 3 },
     userId: { $ne: null },
     gameMode: mode,
     timeMax: time,
@@ -60,6 +60,7 @@ const loadBoard = async ({ period, mode, time, modifiers }, now) => {
     {
       $group: {
         _id: '$userId',
+        resultId: { $first: '$_id' },
         wpm: { $first: '$wpm' },
         accuracy: { $first: '$accuracy' },
         achievedAt: { $first: '$createdAt' },
@@ -89,6 +90,8 @@ const loadBoard = async ({ period, mode, time, modifiers }, now) => {
     raceWins: row.user.stats?.raceWins || 0,
     wpm: row.wpm,
     accuracy: row.accuracy,
+    // The run behind the entry, for its replay.
+    resultId: row.resultId ? row.resultId.toString() : null,
     achievedAt: row.achievedAt,
   }));
 };

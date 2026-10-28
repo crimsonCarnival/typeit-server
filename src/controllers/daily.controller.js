@@ -6,6 +6,7 @@ import {
   releaseAttempt,
 } from '../services/daily.service.js';
 import { startDailySession } from '../services/game.service.js';
+import { startDailyGhostRun } from '../services/replay.service.js';
 
 const dailyController = {
   /**
@@ -50,6 +51,25 @@ const dailyController = {
       }
     } catch (err) {
       res.status(500).json({ success: false, error: 'Could not start the daily challenge' });
+    }
+  },
+
+  /**
+   * POST /api/daily/ghost  { date? }
+   * Practice run on a day's text against its winner's ghost (today's only
+   * after finishing your own attempt). Saved, never ranked.
+   */
+  ghost: async (req, res) => {
+    try {
+      const date = req.body?.date ?? dateKey(new Date());
+      if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ success: false, error: 'Invalid date' });
+      }
+      const out = await startDailyGhostRun(req.user._id, date);
+      if (out.error) return res.status(out.status).json({ success: false, error: out.error });
+      res.json({ success: true, data: out });
+    } catch (err) {
+      res.status(500).json({ success: false, error: 'Could not start the ghost race' });
     }
   },
 };

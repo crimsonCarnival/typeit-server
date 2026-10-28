@@ -1,4 +1,7 @@
 import User from '../models/user.model.js';
+import { deleteAccount } from './user.service.js';
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Gets all users with pagination and filters
@@ -10,8 +13,8 @@ export const getAllUsers = async (page = 1, limit = 20, filters = {}) => {
   if (filters.status) query.status = filters.status;
   if (filters.search) {
     query.$or = [
-      { username: { $regex: filters.search, $options: 'i' } },
-      { email: { $regex: filters.search, $options: 'i' } },
+      { username: { $regex: escapeRegex(filters.search), $options: 'i' } },
+      { email: { $regex: escapeRegex(filters.search), $options: 'i' } },
     ];
   }
 
@@ -141,8 +144,8 @@ export const deleteUser = async (userId, adminId) => {
     }
   }
 
-  const result = await User.findByIdAndDelete(userId);
-  return !!result;
+  // Same cleanup as a self-service deletion (runs, follows, progress...).
+  return await deleteAccount(userId);
 };
 
 /**

@@ -40,9 +40,9 @@ describe('analyzeKeystrokes', () => {
     assert.deepEqual(a.keyErrors, [{ expected: '.', typed: ',', count: 1 }]);
   });
 
-  it('does not count keys typed past the end of the text', () => {
+  it('ignores keys typed past the end of the text', () => {
     const a = analyzeKeystrokes(log('abcd'), 'ab');
-    assert.equal(a.replayed, 'abcd');
+    assert.equal(a.replayed, 'ab');
     assert.deepEqual(a.keyErrors, []);
     assert.equal(a.keyPresses.reduce((n, p) => n + p.count, 0), 2);
   });

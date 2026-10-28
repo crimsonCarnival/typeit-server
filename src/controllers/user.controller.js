@@ -10,6 +10,9 @@ import {
   getFollowers,
   getFollowing,
 } from '../services/user.service.js';
+import { asString, clampInt, errorMessage } from '../utils/http.js';
+import { checkAvatar, checkOptionalString, checkTimezone, checkUsername, parseSettingsPatch } from '../utils/validate.js';
+import User from '../models/user.model.js';
 
 const userController = {
   /**
@@ -34,7 +37,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -43,9 +46,49 @@ const userController = {
    * Update current user profile
    * PATCH /api/users/profile
    */
+  /**
+   * GET /api/users/settings
+   * The caller's saved display and typing preferences.
+   */
+  getSettings: async (req, res) => {
+    try {
+      const user = await User.findById(req.userId).select('settings').lean();
+      if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+      res.json({ success: true, data: user.settings || {} });
+    } catch (error) {
+      res.status(500).json({ success: false, error: errorMessage(error) });
+    }
+  },
+
+  /**
+   * PATCH /api/users/settings
+   * Merges known settings into the caller's preferences.
+   */
+  updateSettings: async (req, res) => {
+    const parsed = parseSettingsPatch(req.body);
+    if (parsed.error) return res.status(400).json({ success: false, error: parsed.error });
+    try {
+      const sets = Object.fromEntries(Object.entries(parsed.settings).map(([k, v]) => [`settings.${k}`, v]));
+      const user = await User.findByIdAndUpdate(req.userId, { $set: sets }, { new: true }).select('settings').lean();
+      if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+      res.json({ success: true, data: user.settings || {} });
+    } catch (error) {
+      res.status(500).json({ success: false, error: errorMessage(error) });
+    }
+  },
+
   updateProfile: async (req, res) => {
     try {
-      const { username, displayName, avatar, bio, timezone } = req.body;
+      const { username, displayName, avatar, bio, timezone } = req.body || {};
+
+      const invalid = (username !== undefined ? checkUsername(username) : null)
+        ?? checkOptionalString(displayName, 'Display name', 30)
+        ?? checkOptionalString(bio, 'Bio', 160)
+        ?? checkAvatar(avatar)
+        ?? checkTimezone(timezone);
+      if (invalid) {
+        return res.status(400).json({ success: false, error: invalid });
+      }
 
       const updateData = { username, displayName, avatar, bio };
       if (timezone !== undefined) updateData.timezone = timezone;
@@ -67,7 +110,7 @@ const userController = {
       const status = error.message.includes('taken') ? 409 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },
@@ -80,7 +123,7 @@ const userController = {
     try {
       const { limit = 10, sortBy = 'highScore' } = req.query;
 
-      const leaderboard = await getLeaderboard(parseInt(limit), sortBy);
+      const leaderboard = await getLeaderboard(clampInt(limit, 10, 1, 100), asString(sortBy));
 
       res.json({
         success: true,
@@ -89,7 +132,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -109,7 +152,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -122,7 +165,11 @@ const userController = {
     try {
       const { q, limit = 20 } = req.query;
 
-      const users = await searchUsers(q, parseInt(limit));
+      const query = asString(q);
+      if (query && query.length > 50) {
+        return res.status(400).json({ success: false, error: 'Search is too long' });
+      }
+      const users = await searchUsers(query, clampInt(limit, 20, 1, 50));
 
       res.json({
         success: true,
@@ -131,7 +178,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -160,7 +207,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -183,7 +230,7 @@ const userController = {
       const status = error.message.includes('follow yourself') || error.message.includes('not found') ? 400 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },
@@ -206,7 +253,7 @@ const userController = {
       const status = error.message.includes('unfollow yourself') ? 400 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },
@@ -228,7 +275,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -250,7 +297,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },

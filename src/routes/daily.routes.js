@@ -6,5 +6,6 @@ const router = express.Router();
 
 router.get('/', optionalAuth, dailyController.overview);
 router.post('/start', auth, dailyController.start);
+router.post('/ghost', auth, dailyController.ghost);
 
 export default router;

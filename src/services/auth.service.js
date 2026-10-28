@@ -4,11 +4,14 @@ import User from '../models/user.model.js';
 import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/env.js';
 import { USERNAME_PATTERN } from '../utils/public-identity.js';
 
+// Pin the algorithm: tokens are only ever signed with HS256 here.
+export const JWT_VERIFY_OPTIONS = Object.freeze({ algorithms: ['HS256'] });
+
 /**
  * Generates a JWT token for a user
  */
 const generateToken = (userId) => {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN, algorithm: 'HS256' });
 };
 
 /**
@@ -55,8 +58,9 @@ export const register = async (username, email, password, displayName) => {
       email: user.email,
       avatar: user.avatar,
       stats: user.stats,
-      followers: user.followers?.length || 0,
-      following: user.following?.length || 0,
+      settings: user.settings || {},
+      followersCount: user.followersCount ?? 0,
+      followingCount: user.followingCount ?? 0,
       createdAt: user.createdAt,
     },
     token,
@@ -67,11 +71,21 @@ export const register = async (username, email, password, displayName) => {
  * Logs in a user with email or username
  */
 export const login = async (identifier, password) => {
+  if (typeof identifier !== 'string' || typeof password !== 'string') {
+    throw new Error('Invalid credentials');
+  }
   const user = await User.findOne({
-    $or: [{ email: identifier }, { username: identifier }]
+    $or: [{ email: identifier.trim().toLowerCase() }, { username: identifier.trim() }]
   });
 
   if (!user) {
+    throw new Error('Invalid credentials');
+  }
+
+  // Password first: account status is only revealed to its owner.
+  const isMatch = await bcrypt.compare(password, user.password);
+
+  if (!isMatch) {
     throw new Error('Invalid credentials');
   }
 
@@ -81,12 +95,6 @@ export const login = async (identifier, password) => {
 
   if (user.status === 'deactivated') {
     throw new Error('Account is deactivated');
-  }
-
-  const isMatch = await bcrypt.compare(password, user.password);
-
-  if (!isMatch) {
-    throw new Error('Invalid credentials');
   }
 
   const token = generateToken(user._id);
@@ -99,8 +107,9 @@ export const login = async (identifier, password) => {
       email: user.email,
       avatar: user.avatar,
       stats: user.stats,
-      followers: user.followers?.length || 0,
-      following: user.following?.length || 0,
+      settings: user.settings || {},
+      followersCount: user.followersCount ?? 0,
+      followingCount: user.followingCount ?? 0,
       createdAt: user.createdAt,
     },
     token,
@@ -111,7 +120,7 @@ export const login = async (identifier, password) => {
  * Verifies a JWT token and returns the user
  */
 export const verifyToken = async (token) => {
-  const decoded = jwt.verify(token, JWT_SECRET);
+  const decoded = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
   const user = await User.findById(decoded.userId).select('-password');
 
   if (!user) {

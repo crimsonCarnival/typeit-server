@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { WebSocketServer } from 'ws';
 import User from '../models/user.model.js';
 import { JWT_SECRET } from '../config/env.js';
+import { JWT_VERIFY_OPTIONS } from '../services/auth.service.js';
 import {
   RACE_AUTH_TIMEOUT_MS,
   RACE_MAX_MESSAGE_BYTES,
@@ -39,9 +40,14 @@ const SHAPES = {
   ready: { ready: 'boolean' },
   cancel: {},
   startNow: {},
-  progress: { index: 'number', accuracy: 'number?' },
   invite: { userId: 'string' },
   list: {},
+  queue: {},
+  unqueue: {},
+  rematch: {},
+  spectate: { code: 'string' },
+  chat: { text: 'string' },
+  emote: { emote: 'string' },
 };
 
 const validShape = (msg) => {
@@ -59,14 +65,15 @@ const validShape = (msg) => {
 };
 
 const authenticate = async (token) => {
-  const { userId } = jwt.verify(token, JWT_SECRET);
-  const user = await User.findById(userId).select('username displayName avatar status').lean();
+  const { userId } = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
+  const user = await User.findById(userId).select('username displayName avatar status stats.raceRating').lean();
   if (!user || user.status !== 'active') throw new Error('inactive');
   return {
     userId: user._id.toString(),
     username: publicHandle(user),
     displayName: publicName(user),
     avatar: user.avatar || '',
+    rating: user.stats?.raceRating ?? 1000,
   };
 };
 

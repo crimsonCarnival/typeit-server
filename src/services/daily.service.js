@@ -111,7 +111,7 @@ export const getDailyOverview = async (userId, now = new Date()) => {
   const leaders = rankEntries(
     rankedToday
       .filter((a) => a.userId && a.userId.status === 'active')
-      .map((a) => ({ ...publicUser(a.userId), wpm: a.wpm, accuracy: a.accuracy, achievedAt: a.finishedAt }))
+      .map((a) => ({ ...publicUser(a.userId), wpm: a.wpm, accuracy: a.accuracy, resultId: a.resultId ? a.resultId.toString() : null, achievedAt: a.finishedAt }))
   ).map(({ achievedAt, ...entry }) => entry);
 
   const winners = await User.find({ _id: { $in: pastBest.map((b) => b.userId) }, status: 'active' })

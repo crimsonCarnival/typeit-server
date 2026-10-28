@@ -1,4 +1,10 @@
-const paragraphs = [
+/**
+ * In-game radio and comedy transcripts from the Grand Theft Auto series,
+ * plus the San Andreas radio adverts (gta-adverts.js).
+ * Mature language and satire; a casual category: runs on it are saved
+ * but never ranked.
+ */
+const lines = [
   "Crazy Liberty City, anything goes. Everything's crazy. Weed is illegal. Ain't that a motherfuck...? Feel free to come to Liberty City but weed is illegal.",
   "Weed is illegal. How the fuck can you make a plant illegal? Weed is just a plant. It's just a plant. It just grows like that an it has some effects if set on fire",
   "Thank you... Thank you very much, I appreciate it. You can cut that, sir... Thank you, Liberty City. What a pleasure to be here at this motherfucking club. You are kickin' the shit out of the club on the other side of town, Club Bullshit.",
@@ -41,4 +47,9 @@ const paragraphs = [
   "Here we go. You take two pills in the morning, yeah. And two in the afternoon. Ooh yeah, mmm hmmm. Give it to me before bedtime, baby. Cause I'll be a man soon. With an Adam's Apple bobbing up and down, up and down, yeah. I can't get me no rest now. Till I grow hair on my breasts. That's right. That's what I said. Mmm hmm.",
 ];
 
-export { paragraphs };
+import { gtaAdverts } from './gta-adverts.js';
+
+export const gta = [
+  ...lines.map((text) => ({ title: 'Grand Theft Auto', author: 'In-game radio', text })),
+  ...gtaAdverts,
+];

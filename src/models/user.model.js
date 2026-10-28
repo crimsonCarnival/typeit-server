@@ -107,6 +107,15 @@ const userSchema = new Schema(
         type: Number,
         default: 0,
       },
+      // Quick-match rating (Elo) and how many rated races it rests on.
+      raceRating: {
+        type: Number,
+        default: 1000,
+      },
+      racesRated: {
+        type: Number,
+        default: 0,
+      },
       // Consecutive UTC days with at least one saved run (Week Streak badge).
       streak: {
         current: { type: Number, default: 0 },
@@ -143,22 +152,27 @@ const userSchema = new Schema(
       type: String,
       default: null,
     },
+    // Display and typing preferences (config/settings.js); validated on write.
+    settings: {
+      type: Schema.Types.Mixed,
+      default: () => ({}),
+    },
     lastSessionAt: {
       type: Date,
       default: null,
     },
-    followers: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-      },
-    ],
-    following: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-      },
-    ],
+    // Follow edges live in the Follow collection; these counters mirror it
+    // (see services/follow.service.js, scripts/migrate-follows.js).
+    followersCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    followingCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   {
     timestamps: true,
@@ -169,6 +183,7 @@ const userSchema = new Schema(
 // Index for leaderboard queries
 userSchema.index({ 'stats.highScore': -1 });
 userSchema.index({ 'stats.bestWpm': -1 });
+userSchema.index({ 'stats.raceRating': -1 });
 userSchema.index({ role: 1 });
 userSchema.index({ status: 1 });
 

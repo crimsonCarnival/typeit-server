@@ -14,6 +14,10 @@ const resultSchema = new Schema(
       type: Number,
       required: true,
     },
+    rawWpm: {
+      type: Number,
+      default: 0,
+    },
     consistency: {
       type: Number,
       default: 0,
@@ -48,11 +52,40 @@ const resultSchema = new Schema(
     },
     gameMode: {
       type: String,
-      enum: ['phrases', 'words'],
+      enum: ['phrases', 'words', 'code'],
       required: true,
     },
     wordCount: {
       type: Number,
+    },
+    // Practice run kind ('drill', 'lesson', 'common-words', 'list'), else null.
+    practiceKind: {
+      type: String,
+      default: null,
+    },
+    // Passage category of a phrases run (config/texts.js), else null.
+    textCategory: {
+      type: String,
+      default: null,
+    },
+    // Rules the run was played under, and the lead before its first key;
+    // with the keystroke log they let the run be replayed exactly.
+    rules: {
+      difficulty: { type: String, default: 'normal' },
+      stopOnError: { type: String, default: 'off' },
+      spaceSkips: { type: Boolean, default: false },
+    },
+    leadMs: {
+      type: Number,
+      default: 0,
+    },
+    backspaces: {
+      type: Number,
+      default: 0,
+    },
+    penalty: {
+      points: { type: Number, default: 0 },
+      seconds: { type: Number, default: 0 },
     },
     // Set when the run was a daily challenge attempt ('YYYY-MM-DD').
     dailyDate: {
@@ -94,6 +127,13 @@ const resultSchema = new Schema(
         type: Number,
         default: 0
       },
+      burst: {
+        type: Number,
+        default: 0
+      },
+      highestWpm: Number,
+      consistency: Number,
+      backspaces: Number,
       accuracy: {
         type: Number,
         required: true,
@@ -135,6 +175,11 @@ const resultSchema = new Schema(
     // Stored as arrays rather than maps: Mongo keys can't hold '.' or '$'.
     keystrokes: {
       type: [Schema.Types.Mixed],
+      default: undefined,
+    },
+    // The text the log was typed against, kept with it for replays and ghosts.
+    text: {
+      type: String,
       default: undefined,
     },
     keyPresses: [{ _id: false, key: String, count: Number }],

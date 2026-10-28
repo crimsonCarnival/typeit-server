@@ -3,6 +3,7 @@ import Result from '../models/result.model.js';
 import User from '../models/user.model.js';
 import DailyAttempt from '../models/daily-attempt.model.js';
 import UserAchievement from '../models/user-achievement.model.js';
+import LessonProgress from '../models/lesson-progress.model.js';
 import {
   ACHIEVEMENTS,
   FLAWLESS_MIN_CORRECT_CHARS,
@@ -43,10 +44,10 @@ export const evaluateAchievements = (metrics) =>
     return { id: a.id, value: Math.min(value, a.target), unlocked: value >= a.target };
   });
 
-/** Reads every metric the badges need, in three queries. */
+/** Reads every metric the badges need, in four queries. */
 export const computeMetrics = async (userId) => {
   const id = new mongoose.Types.ObjectId(String(userId));
-  const [agg, dailiesFinished, user] = await Promise.all([
+  const [agg, dailiesFinished, user, lessons] = await Promise.all([
     Result.aggregate([
       { $match: { userId: id } },
       {
@@ -55,11 +56,14 @@ export const computeMetrics = async (userId) => {
           runs: { $sum: 1 },
           maxElapsed: { $max: '$elapsedTime' },
           bestWpm: { $max: { $cond: ['$ranked', '$wpm', 0] } },
-          bestAccuracy: {
-            $max: {
-              $cond: [{ $and: ['$ranked', { $gte: ['$successes', FLAWLESS_MIN_CORRECT_CHARS] }] }, '$accuracy', 0],
+          flawlessRuns: {
+            $sum: {
+              $cond: [{ $and: ['$ranked', { $gte: ['$successes', FLAWLESS_MIN_CORRECT_CHARS] }, { $gte: ['$accuracy', 100] }] }, 1, 0],
             },
           },
+          bestHardcoreWpm: { $max: { $cond: [{ $and: ['$ranked', { $eq: ['$rules.difficulty', 'hardcore'] }] }, '$wpm', 0] } },
+          drillRuns: { $sum: { $cond: [{ $eq: ['$practiceKind', 'drill'] }, 1, 0] } },
+          listRuns: { $sum: { $cond: [{ $eq: ['$practiceKind', 'list'] }, 1, 0] } },
           best60sAccuracy: { $max: { $cond: [{ $and: ['$ranked', { $eq: ['$timeMax', 60] }] }, '$accuracy', 0] } },
           bestConsistency: { $max: { $cond: ['$ranked', '$consistency', 0] } },
           speedrun: {
@@ -84,13 +88,19 @@ export const computeMetrics = async (userId) => {
     ]),
     DailyAttempt.countDocuments({ userId: id, finishedAt: { $ne: null } }),
     User.findById(id).select('stats.raceWins stats.streak').lean(),
+    LessonProgress.find({ userId: id, completedAt: { $ne: null } }).select('lessonId').lean(),
   ]);
 
   const r = agg[0] || {};
   return {
     runs: r.runs || 0,
     bestWpm: r.bestWpm || 0,
-    bestAccuracy: r.bestAccuracy || 0,
+    flawlessRuns: r.flawlessRuns || 0,
+    bestHardcoreWpm: r.bestHardcoreWpm || 0,
+    drillRuns: r.drillRuns || 0,
+    listRuns: r.listRuns || 0,
+    lessonsPassed: lessons.filter((l) => l.lessonId !== 'common-words').length,
+    commonWordsPassed: lessons.some((l) => l.lessonId === 'common-words') ? 1 : 0,
     best60sAccuracy: r.best60sAccuracy || 0,
     bestConsistency: r.bestConsistency || 0,
     longestRunMinutes: Math.floor((r.maxElapsed || 0) / 60),
