@@ -105,6 +105,30 @@ const resultSchema = new Schema(
       default: false,
       index: true,
     },
+    // Run-integrity assessment (see config/integrity.js). Pre-existing results
+    // default to unranked with version 0: they were never assessed.
+    ranked: {
+      type: Boolean,
+      default: false,
+    },
+    integrityVersion: {
+      type: Number,
+      default: 0,
+    },
+    integrityFlags: {
+      type: [String],
+      default: [],
+    },
+    // Keystroke log as [gapMs, char] pairs ('' = backspace) and the per-key
+    // aggregates derived from it server-side (see keystroke.service.js).
+    // Stored as arrays rather than maps: Mongo keys can't hold '.' or '$'.
+    keystrokes: {
+      type: [Schema.Types.Mixed],
+      default: undefined,
+    },
+    keyPresses: [{ _id: false, key: String, count: Number }],
+    keyErrors: [{ _id: false, expected: String, typed: String, count: Number }],
+    digraphErrors: [{ _id: false, pair: String, count: Number }],
     userId: {
       type: Schema.Types.ObjectId,
       ref: 'User',

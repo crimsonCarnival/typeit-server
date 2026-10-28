@@ -41,6 +41,18 @@ const sessionSchema = new Schema(
       type: Number,
       default: 0,
     },
+    // 'client' when the player supplied the text (custom sources, guest
+    // migration); such runs are never ranked.
+    textSource: {
+      type: String,
+      enum: ['server', 'client'],
+      default: 'server',
+    },
+    // Server clock at the first keystroke (POST /game/begin); cleared on reset.
+    startedAt: {
+      type: Date,
+      default: null,
+    },
     incomplete: {
       type: Boolean,
       default: true,

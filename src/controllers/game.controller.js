@@ -14,6 +14,7 @@ import {
   updateSession,
   validateGameTiming,
   migrateSession,
+  beginSession,
 } from '../services/game.service.js';
 import Result from '../models/result.model.js';
 
@@ -81,6 +82,22 @@ const gameController = {
   },
 
   /**
+   * Marks the first keystroke of the current run on the server clock.
+   * POST /api/game/begin
+   */
+  beginGame: async (req, res) => {
+    try {
+      const session = await beginSession(req.user._id);
+      if (!session) {
+        return res.status(400).json({ success: false, error: 'No active session. Please start a new game.' });
+      }
+      return res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  /**
    * Gets current game state
    * GET /api/game/state
    */
@@ -135,7 +152,7 @@ const gameController = {
    */
   endGame: async (req, res) => {
     try {
-      const { typedText, startTime, endTime, gameMode, wordCount, timeMax, text, totalWords, afkTime = 0, afkPeriods = 0, performance = [], penalty = 0, rawKeystrokes = 0 } = req.body;
+      const { typedText, startTime, endTime, gameMode, wordCount, timeMax, text, totalWords, afkTime = 0, afkPeriods = 0, performance = [], penalty = 0, rawKeystrokes = 0, keystrokes = null } = req.body;
       const userId = req.user?._id || null;
 
       if (typeof typedText !== 'string') {
@@ -162,7 +179,7 @@ const gameController = {
           });
         }
 
-        const results = await endGame(session, typedText, startTime, endTime, userId, afkTime, afkPeriods, Array.isArray(performance) ? performance : [], penalty, rawKeystrokes);
+        const results = await endGame(session, typedText, startTime, endTime, userId, afkTime, afkPeriods, Array.isArray(performance) ? performance : [], penalty, rawKeystrokes, false, keystrokes);
         return res.json({ success: true, data: results });
       }
 
@@ -532,7 +549,8 @@ const gameController = {
           Array.isArray(endData.performance) ? endData.performance : [],
           endData.penalty || 0,
           endData.rawKeystrokes || 0,
-          true  // migrated = true: this result originated from a guest session
+          true, // migrated = true: this result originated from a guest session
+          endData.keystrokes || null
         );
 
         return res.json({ success: true, data: { results } });

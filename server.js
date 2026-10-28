@@ -31,7 +31,9 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.use(express.json());
+// Raised from the 100kb default: /game/end carries a keystroke log
+// (bounded by MAX_KEYSTROKES) plus per-second performance samples.
+app.use(express.json({ limit: '256kb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 app.use(logger);

@@ -3,6 +3,9 @@ import { generateWordContent } from '../data/words.js';
 import Session from '../models/session.model.js';
 import Result from '../models/result.model.js';
 import User from '../models/user.model.js';
+import { assessRun } from './integrity.service.js';
+import { analyzeKeystrokes } from './keystroke.service.js';
+import { INTEGRITY_FLAGS } from '../config/integrity.js';
 
 // Preset categories used to bucket stats. Values outside these are 'custom'.
 const PRESET_TIMES = [30, 60, 90, 120];
@@ -237,6 +240,8 @@ export const createSession = async (options = {}, userId = null) => {
     numbersEnabled,
     timeMax,
     totalWords,
+    textSource: clientText ? 'client' : 'server',
+    startedAt: null,
     incomplete: true
   };
 
@@ -339,10 +344,26 @@ export const updateSession = async (sessionId, updates) => {
 };
 
 /**
+ * Stamps the server clock at the player's first keystroke. Idempotent: only
+ * the first call for an in-progress session counts, so a client can't push
+ * its start later by calling again.
+ */
+export const beginSession = async (userId) => {
+  const session = await getSessionByUserId(userId);
+  if (!session || !session.incomplete) return null;
+  if (session.startedAt) return session;
+  return await Session.findOneAndUpdate(
+    { _id: session._id, startedAt: null },
+    { $set: { startedAt: new Date() } },
+    { new: true }
+  ) || session;
+};
+
+/**
  * Ends a game and saves the result
  * Creates Result first, then updates Session with resultsId
  */
-export const endGame = async (session, typedText, startTime, endTime, userId = null, afkTime = 0, afkPeriods = 0, performance = [], penalty = 0, rawKeystrokes = 0, migrated = false) => {
+export const endGame = async (session, typedText, startTime, endTime, userId = null, afkTime = 0, afkPeriods = 0, performance = [], penalty = 0, rawKeystrokes = 0, migrated = false, keystrokes = null) => {
   const results = calculateResults(session, typedText, startTime, endTime, afkTime, afkPeriods, performance, penalty, rawKeystrokes);
 
   // If no authenticated user, do not persist anything — just return computed results
@@ -350,9 +371,38 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
     return results;
   }
 
+  const keystrokeAnalysis = keystrokes ? analyzeKeystrokes(keystrokes, session.text) : null;
+
+  // Sessions without a textSource are in-memory ones built from client data
+  // (guest migration), so they count as client text.
+  const integrity = assessRun({
+    textSource: session.textSource || 'client',
+    serverStartedAt: session.startedAt || null,
+    serverEndedAt: new Date(),
+    clientElapsedMs: endTime - startTime,
+    wpm: results.wpm,
+    rawWpm: results.rawWpm,
+    textLength: session.text.length,
+    performance,
+    typedText: typedText || '',
+    keystrokes: keystrokeAnalysis,
+  });
+  results.ranked = integrity.ranked;
+  results.integrityFlags = integrity.flags;
+
   // Authenticated user: persist result and update session if present in DB
   const gameResult = new Result({
     ...results,
+    integrityVersion: integrity.integrityVersion,
+    // Only a log that replays cleanly is worth keeping for the error map.
+    ...(keystrokeAnalysis?.valid && keystrokeAnalysis.replayed === (typedText || '')
+      ? {
+          keystrokes,
+          keyPresses: keystrokeAnalysis.keyPresses,
+          keyErrors: keystrokeAnalysis.keyErrors,
+          digraphErrors: keystrokeAnalysis.digraphErrors,
+        }
+      : {}),
     gameMode: session.gameMode,
     wordCount: session.wordCount,
     timeMax: session.timeMax,
@@ -430,9 +480,12 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
         maxUpdates[`stats.byModifier.${mod}.bestAccuracy`] = results.accuracy;
       }
 
+      // A superhuman run still counts as played, but must not become a
+      // personal best that later feeds profiles or rankings.
+      const implausible = integrity.flags.includes(INTEGRITY_FLAGS.IMPLAUSIBLE_WPM);
       await User.findByIdAndUpdate(userId, {
         $inc: incUpdates,
-        $max: maxUpdates,
+        ...(implausible ? {} : { $max: maxUpdates }),
       });
     }
   } catch (e) {
@@ -532,6 +585,8 @@ export const resetSession = async (sessionId, options = {}) => {
     punctuationEnabled: effectivePunctuation,
     numbersEnabled: effectiveNumbers,
     timeMax: effectiveTimeMax,
+    textSource: overrides.clientText ? 'client' : 'server',
+    startedAt: null,
     incomplete: true,
   });
 };
@@ -588,6 +643,8 @@ export const updateSettings = async (sessionId, settings) => {
     updates.text = text;
     updates.typedText = '';
     updates.totalWords = totalWords;
+    updates.textSource = 'server';
+    updates.startedAt = null;
     updates.currentIndex = 0;
     updates.mistakes = 0;
     updates.successes = 0;
@@ -630,6 +687,8 @@ export const migrateSession = async (userId, payload) => {
     timeLeft: typeof timeLeft === 'number' ? timeLeft : timeMax,
     punctuationEnabled,
     numbersEnabled,
+    textSource: 'client',
+    startedAt: null,
     incomplete: true,
     resultsId: null,
   };

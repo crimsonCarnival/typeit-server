@@ -5,6 +5,7 @@ import { auth, optionalAuth } from '../middleware/auth.middleware.js';
 const router = express.Router();
 
 router.post('/start', optionalAuth, gameController.startGame);
+router.post('/begin', auth, gameController.beginGame);
 router.get('/leaderboard', gameController.getLeaderboard);
 router.post('/end', optionalAuth, gameController.endGame);
 router.post('/reset', optionalAuth, gameController.resetGame);
