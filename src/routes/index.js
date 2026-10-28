@@ -6,6 +6,7 @@ import adminRoutes from './admin.routes.js';
 import statsRoutes from './stats.routes.js';
 import rankingsRoutes from './rankings.routes.js';
 import dailyRoutes from './daily.routes.js';
+import achievementsRoutes from './achievements.routes.js';
 
 const router = express.Router();
 
@@ -16,6 +17,7 @@ router.use('/admin', adminRoutes);
 router.use('/stats', statsRoutes);
 router.use('/rankings', rankingsRoutes);
 router.use('/daily', dailyRoutes);
+router.use('/achievements', achievementsRoutes);
 
 router.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

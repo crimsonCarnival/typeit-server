@@ -6,6 +6,7 @@ import User from '../models/user.model.js';
 import { assessRun } from './integrity.service.js';
 import { analyzeKeystrokes } from './keystroke.service.js';
 import { recordDailyFinish } from './daily.service.js';
+import { recordPlayDay, syncAchievements } from './achievement.service.js';
 import { INTEGRITY_FLAGS } from '../config/integrity.js';
 
 // Preset categories used to bucket stats. Values outside these are 'custom'.
@@ -544,6 +545,17 @@ export const endGame = async (session, typedText, startTime, endTime, userId = n
     }
   } catch (e) {
     // Error ignored
+  }
+
+  // Badges are evaluated server-side after every saved run. A failure here
+  // must not lose the run; the next evaluation (or GET /achievements)
+  // catches up because evaluation is idempotent.
+  try {
+    await recordPlayDay(userId);
+    const { newlyUnlocked } = await syncAchievements(userId);
+    results.newAchievements = newlyUnlocked;
+  } catch (e) {
+    results.newAchievements = [];
   }
 
   // Only update session if we have a DB _id for it
