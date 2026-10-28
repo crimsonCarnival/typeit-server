@@ -432,6 +432,7 @@ export const endGame = async (run, { typedText = '', elapsedMs, userId = null, m
     timeMax: run.timeMax,
     modifiers: modifiersOf(run),
     textCategory: run.passage?.category || null,
+    practiceKind: run.practice?.kind || null,
     dailyDate: run.dailyDate || null,
     migrated: !!migrated,
     userId: userId || run.userId || null,

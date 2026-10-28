@@ -58,6 +58,11 @@ const resultSchema = new Schema(
     wordCount: {
       type: Number,
     },
+    // Practice run kind ('drill', 'lesson', 'common-words', 'list'), else null.
+    practiceKind: {
+      type: String,
+      default: null,
+    },
     // Passage category of a phrases run (config/texts.js), else null.
     textCategory: {
       type: String,

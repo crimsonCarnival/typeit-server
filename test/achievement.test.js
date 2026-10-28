@@ -5,6 +5,7 @@ import Result from '../src/models/result.model.js';
 import User from '../src/models/user.model.js';
 import DailyAttempt from '../src/models/daily-attempt.model.js';
 import UserAchievement from '../src/models/user-achievement.model.js';
+import LessonProgress from '../src/models/lesson-progress.model.js';
 import {
   computeMetrics,
   evaluateAchievements,
@@ -17,11 +18,36 @@ import { ACHIEVEMENTS, ACHIEVEMENT_CATEGORIES, ACHIEVEMENT_RARITIES } from '../s
 const byId = (list) => Object.fromEntries(list.map((a) => [a.id, a]));
 
 describe('achievement definitions', () => {
-  it('has 12 badges across 4 categories and 3 rarities', () => {
-    assert.equal(ACHIEVEMENTS.length, 12);
-    assert.equal(new Set(ACHIEVEMENTS.map((a) => a.id)).size, 12);
+  it('has unique badges covering every category and rarity', () => {
+    assert.equal(new Set(ACHIEVEMENTS.map((a) => a.id)).size, ACHIEVEMENTS.length);
     assert.deepEqual([...new Set(ACHIEVEMENTS.map((a) => a.category))].sort(), [...ACHIEVEMENT_CATEGORIES].sort());
     assert.deepEqual([...new Set(ACHIEVEMENTS.map((a) => a.rarity))].sort(), [...ACHIEVEMENT_RARITIES].sort());
+  });
+
+  it('keeps the original badge ids', () => {
+    const ids = new Set(ACHIEVEMENTS.map((a) => a.id));
+    for (const id of ['first-run', 'warm-up', 'sixty-club', 'century', 'flawless', 'sharpshooter', 'steady-hand', 'week-streak', 'marathon', 'speedrun', 'daily-regular', 'race-winner']) {
+      assert.ok(ids.has(id), id);
+    }
+  });
+
+  it('numbers each family\'s tiers 1..n on one metric with rising targets', () => {
+    const families = Map.groupBy(ACHIEVEMENTS.filter((a) => a.family), (a) => a.family);
+    assert.ok(families.size >= 6);
+    for (const [family, tiers] of families) {
+      assert.deepEqual(tiers.map((t) => t.tier), tiers.map((_, i) => i + 1), family);
+      assert.equal(new Set(tiers.map((t) => t.metric)).size, 1, family);
+      for (let i = 1; i < tiers.length; i++) assert.ok(tiers[i].target > tiers[i - 1].target, family);
+    }
+  });
+});
+
+describe('tiers', () => {
+  it('unlocks every tier the metric reaches', () => {
+    const r = byId(evaluateAchievements({ raceWins: 12, lessonsPassed: 6, drillRuns: 9 }));
+    assert.deepEqual([r['race-winner'].unlocked, r['race-ace'].unlocked, r['race-champion'].unlocked], [true, true, false]);
+    assert.deepEqual([r['first-lesson'].unlocked, r.halfway.unlocked, r.graduate.unlocked], [true, true, false]);
+    assert.equal(r.driller.unlocked, false);
   });
 });
 
@@ -85,14 +111,16 @@ describe('computeMetrics', () => {
 
   it('only scores performance badges on ranked runs', async () => {
     const agg = mock.method(Result, 'aggregate', async () => [
-      { runs: 3, maxElapsed: 125, bestWpm: 71, bestAccuracy: 0, best60sAccuracy: 96, bestConsistency: 80, speedrun: 0 },
+      { runs: 3, maxElapsed: 125, bestWpm: 71, flawlessRuns: 0, best60sAccuracy: 96, bestConsistency: 80, speedrun: 0, bestHardcoreWpm: 64, drillRuns: 4, listRuns: 1 },
     ]);
+    mock.method(LessonProgress, 'find', () => ({ select: () => ({ lean: async () => [{ lessonId: 'home-left' }, { lessonId: 'common-words' }] }) }));
     mock.method(DailyAttempt, 'countDocuments', async () => 2);
     mock.method(User, 'findById', () => ({ select: () => ({ lean: async () => ({ stats: { raceWins: 0, streak: { longest: 4 } } }) }) }));
 
     const m = await computeMetrics(new mongoose.Types.ObjectId());
     assert.deepEqual(m, {
-      runs: 3, bestWpm: 71, bestAccuracy: 0, best60sAccuracy: 96, bestConsistency: 80,
+      runs: 3, bestWpm: 71, flawlessRuns: 0, bestHardcoreWpm: 64, drillRuns: 4, listRuns: 1, lessonsPassed: 1, commonWordsPassed: 1,
+      best60sAccuracy: 96, bestConsistency: 80,
       longestRunMinutes: 2, speedrunWords: 35, longestStreak: 4, dailiesFinished: 2, raceWins: 0,
     });
     const group = agg.mock.calls[0].arguments[0][1].$group;
@@ -108,6 +136,7 @@ describe('syncAchievements', () => {
     mock.method(Result, 'aggregate', async () => [{ runs: 1, bestWpm: 55, maxElapsed: 30 }]);
     mock.method(DailyAttempt, 'countDocuments', async () => 0);
     mock.method(User, 'findById', () => ({ select: () => ({ lean: async () => ({ stats: {} }) }) }));
+    mock.method(LessonProgress, 'find', () => ({ select: () => ({ lean: async () => [] }) }));
 
     const stored = new Map();
     mock.method(UserAchievement, 'bulkWrite', async (ops) => {
