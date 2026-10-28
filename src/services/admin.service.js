@@ -1,5 +1,7 @@
 import User from '../models/user.model.js';
 
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
  * Gets all users with pagination and filters
  */
@@ -10,8 +12,8 @@ export const getAllUsers = async (page = 1, limit = 20, filters = {}) => {
   if (filters.status) query.status = filters.status;
   if (filters.search) {
     query.$or = [
-      { username: { $regex: filters.search, $options: 'i' } },
-      { email: { $regex: filters.search, $options: 'i' } },
+      { username: { $regex: escapeRegex(filters.search), $options: 'i' } },
+      { email: { $regex: escapeRegex(filters.search), $options: 'i' } },
     ];
   }
 

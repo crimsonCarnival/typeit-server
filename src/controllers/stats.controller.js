@@ -1,4 +1,5 @@
 import Result from '../models/result.model.js';
+import { errorMessage } from '../utils/http.js';
 
 /**
  * Stats Controller — authenticated user statistics endpoints.
@@ -54,7 +55,7 @@ const statsController = {
 
       return res.json({ success: true, data: { sessions } });
     } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
+      res.status(500).json({ success: false, error: errorMessage(error) });
     }
   },
 };

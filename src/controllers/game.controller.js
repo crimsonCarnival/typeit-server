@@ -17,6 +17,34 @@ import {
   beginSession,
 } from '../services/game.service.js';
 import Result from '../models/result.model.js';
+import { clampInt, errorMessage } from '../utils/http.js';
+import { CLIENT_TEXT_MAX, TIME_MAX_MAX, parseGameSettings } from '../utils/validate.js';
+import { MAX_KEYSTROKES } from '../config/integrity.js';
+
+// One sample per second, plus slack.
+const MAX_PERFORMANCE_SAMPLES = TIME_MAX_MAX + 5;
+
+const badRequest = (res, error) => res.status(400).json({ success: false, error });
+
+const isNonNegative = (v) => v === undefined || (typeof v === 'number' && Number.isFinite(v) && v >= 0);
+
+/**
+ * Shape checks for POST /game/end (and a migrated finished run). Values are
+ * re-derived server-side; this only rejects payloads no honest client sends.
+ */
+const checkEndPayload = (body) => {
+  const { typedText, text, afkTime, afkPeriods, penalty, rawKeystrokes, performance, keystrokes } = body || {};
+  if (typedText.length > CLIENT_TEXT_MAX) return 'Typed text is too long';
+  if (text !== undefined && (typeof text !== 'string' || text.length > CLIENT_TEXT_MAX)) return 'Invalid text';
+  if (![afkTime, afkPeriods, penalty, rawKeystrokes].every(isNonNegative)) return 'Invalid run counters';
+  if (performance !== undefined && (!Array.isArray(performance) || performance.length > MAX_PERFORMANCE_SAMPLES)) {
+    return 'Invalid performance samples';
+  }
+  if (keystrokes !== undefined && keystrokes !== null && (!Array.isArray(keystrokes) || keystrokes.length > MAX_KEYSTROKES)) {
+    return 'Invalid keystroke log';
+  }
+  return null;
+};
 
 /**
  * Game Controller - Handles HTTP request/response logic
@@ -31,7 +59,10 @@ const gameController = {
    */
   startGame: async (req, res) => {
     try {
-      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, persist, clientText, clientTotalWords } = req.body;
+      const parsed = parseGameSettings(req.body);
+      if (parsed.error) return badRequest(res, parsed.error);
+      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled, clientText, clientTotalWords } = parsed.settings;
+      const persist = req.body?.persist === true;
       const userId = req.user?._id || null;
       const options = { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled };
       // When the client provides pre-generated text (phrases + non-default source),
@@ -82,7 +113,7 @@ const gameController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
@@ -99,7 +130,7 @@ const gameController = {
       }
       return res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
+      res.status(500).json({ success: false, error: errorMessage(error) });
     }
   },
 
@@ -142,7 +173,7 @@ const gameController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
@@ -164,6 +195,8 @@ const gameController = {
       if (typeof typedText !== 'string') {
         return res.status(400).json({ success: false, error: 'Typed text is required' });
       }
+      const invalid = checkEndPayload(req.body);
+      if (invalid) return badRequest(res, invalid);
 
       if (userId) {
         const session = await getSessionByUserId(userId);
@@ -221,7 +254,7 @@ const gameController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
@@ -233,7 +266,9 @@ const gameController = {
   resetGame: async (req, res) => {
     try {
       const userId = req.user?._id || null;
-      const { wordCount, gameMode, timeMax, punctuationEnabled, numbersEnabled, clientText, clientTotalWords } = req.body;
+      const parsed = parseGameSettings(req.body);
+      if (parsed.error) return badRequest(res, parsed.error);
+      const { wordCount, gameMode, timeMax, punctuationEnabled, numbersEnabled, clientText, clientTotalWords } = parsed.settings;
 
       // For authenticated users, look up and reset their session
       if (userId) {
@@ -293,7 +328,7 @@ const gameController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
@@ -305,7 +340,9 @@ const gameController = {
   refreshText: async (req, res) => {
     try {
       const userId = req.user?._id || null;
-      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled } = req.body;
+      const parsed = parseGameSettings(req.body);
+      if (parsed.error) return badRequest(res, parsed.error);
+      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled } = parsed.settings;
 
       // For authenticated users, look up and refresh their session
       if (userId) {
@@ -356,7 +393,7 @@ const gameController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
@@ -368,7 +405,9 @@ const gameController = {
   updateSettings: async (req, res) => {
     try {
       const userId = req.user?._id || null;
-      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled } = req.body;
+      const parsed = parseGameSettings(req.body);
+      if (parsed.error) return badRequest(res, parsed.error);
+      const { gameMode, wordCount, timeMax, punctuationEnabled, numbersEnabled } = parsed.settings;
 
       if (!userId) {
         return res.status(400).json({
@@ -414,7 +453,7 @@ const gameController = {
       console.error('Error updating settings:', error);
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
@@ -430,7 +469,14 @@ const gameController = {
         return res.status(401).json({ success: false, error: 'Authentication required' });
       }
 
-      const { currentIndex, typedText, timeLeft, isTyping, currentText } = req.body;
+      const { currentIndex, typedText, timeLeft, isTyping, currentText } = req.body || {};
+      for (const value of [typedText, currentText]) {
+        if (value !== undefined && (typeof value !== 'string' || value.length > CLIENT_TEXT_MAX)) {
+          return badRequest(res, 'Invalid typed text');
+        }
+      }
+      if (currentIndex !== undefined && !Number.isInteger(currentIndex)) return badRequest(res, 'Invalid index');
+      if (timeLeft !== undefined && typeof timeLeft !== 'number') return badRequest(res, 'Invalid time');
 
       const session = await getSessionByUserId(userId);
       if (!session) {
@@ -458,7 +504,7 @@ const gameController = {
       const updated = await updateSession(session._id, updates);
       return res.json({ success: true, data: getState(updated) });
     } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
+      res.status(500).json({ success: false, error: errorMessage(error) });
     }
   },
 
@@ -494,7 +540,7 @@ const gameController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   },
@@ -517,6 +563,14 @@ const gameController = {
       }
 
       const payload = req.body || {};
+      const parsed = parseGameSettings({ ...payload, clientText: undefined });
+      if (parsed.error) return badRequest(res, parsed.error);
+      if (typeof payload.text !== 'string' || !payload.text || payload.text.length > CLIENT_TEXT_MAX) {
+        return badRequest(res, 'Invalid game data');
+      }
+      if (payload.typedText !== undefined && typeof payload.typedText !== 'string') {
+        return badRequest(res, 'Invalid typed text');
+      }
 
       if (payload.incomplete) {
         const state = await migrateSession(userId, payload);
@@ -528,6 +582,10 @@ const gameController = {
 
       if (payload.endData) {
         const endData = payload.endData;
+        const invalid = typeof payload.typedText === 'string'
+          ? checkEndPayload({ ...endData, typedText: payload.typedText })
+          : 'Invalid typed text';
+        if (invalid) return badRequest(res, invalid);
         const timing = validateGameTiming(endData.startTime, endData.endTime, payload.timeMax || 120);
         if (!timing.ok) {
           return res.status(400).json({ success: false, error: timing.error });
@@ -564,7 +622,7 @@ const gameController = {
 
       return res.status(400).json({ success: false, error: 'Invalid migration data' });
     } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
+      res.status(500).json({ success: false, error: errorMessage(error) });
     }
   },
 
@@ -575,7 +633,8 @@ const gameController = {
   getLeaderboard: async (req, res) => {
     try {
       const { limit = 10, gameMode } = req.query;
-      const leaderboard = await getLeaderboard(parseInt(limit), gameMode || null);
+      const mode = gameMode === 'words' || gameMode === 'phrases' ? gameMode : null;
+      const leaderboard = await getLeaderboard(clampInt(limit, 10, 1, 100), mode);
 
       res.json({
         success: true,
@@ -584,7 +643,7 @@ const gameController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message
+        error: errorMessage(error)
       });
     }
   }

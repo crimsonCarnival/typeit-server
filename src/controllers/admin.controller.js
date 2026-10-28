@@ -9,6 +9,7 @@ import {
   deleteUser,
   getDashboardStats,
 } from '../services/admin.service.js';
+import { asString, clampInt, errorMessage } from '../utils/http.js';
 
 const adminController = {
   /**
@@ -26,7 +27,7 @@ const adminController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -39,10 +40,10 @@ const adminController = {
     try {
       const { page = 1, limit = 20, role, status, search } = req.query;
 
-      const result = await getAllUsers(parseInt(page), parseInt(limit), {
-        role,
-        status,
-        search,
+      const result = await getAllUsers(clampInt(page, 1, 1, 10_000), clampInt(limit, 20, 1, 100), {
+        role: asString(role),
+        status: asString(status),
+        search: asString(search)?.slice(0, 50),
       });
 
       res.json({
@@ -52,7 +53,7 @@ const adminController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -81,7 +82,7 @@ const adminController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -119,7 +120,7 @@ const adminController = {
       const status = error.message.includes('Cannot') || error.message.includes('Invalid') ? 400 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },
@@ -157,7 +158,7 @@ const adminController = {
       const status = error.message.includes('Cannot') || error.message.includes('Only') ? 403 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },
@@ -188,7 +189,7 @@ const adminController = {
       const status = error.message.includes('Cannot') || error.message.includes('Only') ? 403 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },
@@ -219,7 +220,7 @@ const adminController = {
       const status = error.message.includes('Cannot') || error.message.includes('Only') ? 403 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },
@@ -248,7 +249,7 @@ const adminController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -271,7 +272,7 @@ const adminController = {
       const status = error.message.includes('Cannot') || error.message.includes('Only') ? 403 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },

@@ -6,12 +6,16 @@ import { router as routes } from './src/routes/index.js';
 import { logger } from './src/middleware/logger.middleware.js';
 import { PORT, NODE_ENV, CORS_ORIGINS } from './src/config/env.js';
 import { attachRaceSocket } from './src/sockets/race.socket.js';
+import { errorHandler, notFound, sanitizeBody, securityHeaders } from './src/middleware/security.middleware.js';
+import { rateLimit } from './src/middleware/rateLimit.middleware.js';
 
 const app = express();
 
 // Trust the proxy so req.ip reflects the client's IP (not Render's proxy IP).
 // Needed for rate limiting and security checks behind Render/Vercel.
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use(securityHeaders);
 
 // Allow an explicit allowlist via CORS_ORIGINS; otherwise default to local dev
 // origins (localhost on any port + dev tunnels).
@@ -35,11 +39,21 @@ app.use(cors(corsOptions));
 // Raised from the 100kb default: /game/end carries a keystroke log
 // (bounded by MAX_KEYSTROKES) plus per-second performance samples.
 app.use(express.json({ limit: '256kb' }));
-app.use(express.urlencoded({ extended: true }));
-app.use(morgan('dev'));
-app.use(logger);
+app.use(express.urlencoded({ extended: false, limit: '16kb' }));
+app.use(sanitizeBody);
+// The verbose logger prints every body (keystroke logs included): dev only.
+if (NODE_ENV === 'production') {
+  app.use(morgan('combined'));
+} else {
+  app.use(morgan('dev'));
+  app.use(logger);
+}
 
+// Broad per-IP budget for the whole API; sensitive routes add their own.
+app.use('/api', rateLimit({ windowMs: 60 * 1000, max: 600 }));
 app.use('/api', routes);
+app.use('/api', notFound);
+app.use(errorHandler);
 
 // Start the HTTP server immediately; connect to MongoDB in the background so a
 // slow/unavailable database does not block the health endpoint.

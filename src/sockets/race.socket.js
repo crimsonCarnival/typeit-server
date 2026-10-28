@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { WebSocketServer } from 'ws';
 import User from '../models/user.model.js';
 import { JWT_SECRET } from '../config/env.js';
+import { JWT_VERIFY_OPTIONS } from '../services/auth.service.js';
 import {
   RACE_AUTH_TIMEOUT_MS,
   RACE_MAX_MESSAGE_BYTES,
@@ -39,7 +40,7 @@ const validShape = (msg) => {
 };
 
 const authenticate = async (token) => {
-  const { userId } = jwt.verify(token, JWT_SECRET);
+  const { userId } = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
   const user = await User.findById(userId).select('username displayName avatar status').lean();
   if (!user || user.status !== 'active') throw new Error('inactive');
   return {

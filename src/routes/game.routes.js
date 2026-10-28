@@ -2,6 +2,10 @@ import express from 'express';
 import gameController from '../controllers/game.controller.js';
 import errorMapController from '../controllers/error-map.controller.js';
 import { auth, optionalAuth } from '../middleware/auth.middleware.js';
+import { rateLimit } from '../middleware/rateLimit.middleware.js';
+
+// Finishing a run is the expensive request (keystroke replay, stats, badges).
+const endLimit = rateLimit({ windowMs: 60 * 1000, max: 30, perUser: true });
 
 const router = express.Router();
 
@@ -9,7 +13,7 @@ router.post('/start', optionalAuth, gameController.startGame);
 router.post('/begin', auth, gameController.beginGame);
 router.post('/drill', auth, errorMapController.drill);
 router.get('/leaderboard', gameController.getLeaderboard);
-router.post('/end', optionalAuth, gameController.endGame);
+router.post('/end', optionalAuth, endLimit, gameController.endGame);
 router.post('/reset', optionalAuth, gameController.resetGame);
 router.post('/refresh', optionalAuth, gameController.refreshText);
 router.patch('/session', auth, gameController.saveSessionState);

@@ -10,6 +10,8 @@ import {
   getFollowers,
   getFollowing,
 } from '../services/user.service.js';
+import { asString, clampInt, errorMessage } from '../utils/http.js';
+import { checkAvatar, checkOptionalString, checkTimezone, checkUsername } from '../utils/validate.js';
 
 const userController = {
   /**
@@ -34,7 +36,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -45,7 +47,16 @@ const userController = {
    */
   updateProfile: async (req, res) => {
     try {
-      const { username, displayName, avatar, bio, timezone } = req.body;
+      const { username, displayName, avatar, bio, timezone } = req.body || {};
+
+      const invalid = (username !== undefined ? checkUsername(username) : null)
+        ?? checkOptionalString(displayName, 'Display name', 30)
+        ?? checkOptionalString(bio, 'Bio', 160)
+        ?? checkAvatar(avatar)
+        ?? checkTimezone(timezone);
+      if (invalid) {
+        return res.status(400).json({ success: false, error: invalid });
+      }
 
       const updateData = { username, displayName, avatar, bio };
       if (timezone !== undefined) updateData.timezone = timezone;
@@ -67,7 +78,7 @@ const userController = {
       const status = error.message.includes('taken') ? 409 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },
@@ -80,7 +91,7 @@ const userController = {
     try {
       const { limit = 10, sortBy = 'highScore' } = req.query;
 
-      const leaderboard = await getLeaderboard(parseInt(limit), sortBy);
+      const leaderboard = await getLeaderboard(clampInt(limit, 10, 1, 100), asString(sortBy));
 
       res.json({
         success: true,
@@ -89,7 +100,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -109,7 +120,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -122,7 +133,11 @@ const userController = {
     try {
       const { q, limit = 20 } = req.query;
 
-      const users = await searchUsers(q, parseInt(limit));
+      const query = asString(q);
+      if (query && query.length > 50) {
+        return res.status(400).json({ success: false, error: 'Search is too long' });
+      }
+      const users = await searchUsers(query, clampInt(limit, 20, 1, 50));
 
       res.json({
         success: true,
@@ -131,7 +146,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -160,7 +175,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -183,7 +198,7 @@ const userController = {
       const status = error.message.includes('follow yourself') || error.message.includes('not found') ? 400 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },
@@ -206,7 +221,7 @@ const userController = {
       const status = error.message.includes('unfollow yourself') ? 400 : 500;
       res.status(status).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error, status),
       });
     }
   },
@@ -228,7 +243,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
@@ -250,7 +265,7 @@ const userController = {
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: errorMessage(error),
       });
     }
   },
