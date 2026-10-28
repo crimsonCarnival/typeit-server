@@ -1,0 +1,36 @@
+{
+  "name": "typeit-backend",
+  "version": "1.0.0",
+  "description": "A typing game with authentication (coming soon)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js --watch . --ext js,mjs,json,jsx",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crimsonCarnival/typeit.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/crimsonCarnival/typeit/issues"
+  },
+  "homepage": "https://github.com/crimsonCarnival/typeit#readme",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.1.6",
+    "morgan": "^1.10.1",
+    "random-words": "^2.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}
