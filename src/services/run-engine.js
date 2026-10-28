@@ -393,6 +393,8 @@ export const computeResults = (run, replay, elapsedMs, leadMs = 0) => {
     highestWpm,
     accuracy: round2(accuracy),
     mistakes: replay.wrongKeys,
+    // Wrong keys per minute of the run.
+    errorRate: Math.round((replay.wrongKeys / (elapsedSeconds / 60)) * 10) / 10,
     successes: replay.correctChars,
     missed: Math.max(0, text.length - replay.position) + replay.skippedChars,
     backspaces: replay.backspaces,

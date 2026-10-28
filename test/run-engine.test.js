@@ -123,6 +123,7 @@ describe('computeResults', () => {
     // 4 correct keys, 2 wrong ones ('x' and the first 'b' after it).
     assert.equal(r.mistakes, 2);
     assert.equal(r.accuracy, 66.67);
+    assert.equal(r.errorRate, 12); // 2 errors in 10s
   });
 
   it('subtracts penalty points from the score', () => {
