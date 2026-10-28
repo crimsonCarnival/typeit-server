@@ -25,14 +25,16 @@ const statsController = {
       if (req.query.gameMode) filter.gameMode = req.query.gameMode;
       if (req.query.timeMax) filter.timeMax = parseInt(req.query.timeMax);
 
-      const results = await Result.find(filter)
-        .sort({ createdAt: 1 })   // ascending = chronological order for the chart
+      // Newest first so the limit keeps the latest runs, then flipped back to
+      // chronological order for the chart.
+      const results = (await Result.find(filter)
+        .sort({ createdAt: -1 })
         .limit(limit)
         .select(
           'score wpm cpm rawWpm accuracy consistency gameMode wordCount timeMax ' +
           'completionPercentage migrated createdAt'
         )
-        .lean();
+        .lean()).reverse();
 
       const sessions = results.map((r) => ({
         sessionId:            r._id.toString(),

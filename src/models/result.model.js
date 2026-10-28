@@ -14,6 +14,10 @@ const resultSchema = new Schema(
       type: Number,
       required: true,
     },
+    rawWpm: {
+      type: Number,
+      default: 0,
+    },
     consistency: {
       type: Number,
       default: 0,
