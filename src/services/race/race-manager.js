@@ -5,6 +5,7 @@ import User from '../../models/user.model.js';
 import { gameEvents } from '../../events/game-events.js';
 import { generateText, startRaceSession } from '../game.service.js';
 import { syncAchievements } from '../achievement.service.js';
+import { areMutual } from '../follow.service.js';
 import {
   RACE_CODE_ALPHABET,
   RACE_CODE_LENGTH,
@@ -95,11 +96,7 @@ const detach = (userId, now, { reconnectable = false } = {}) => {
 };
 
 /** Mutual follows count as friends (who can invite each other). */
-const areFriends = async (a, b) => {
-  const user = await User.findById(a).select('following followers').lean();
-  const has = (list) => (list ?? []).some((id) => String(id) === String(b));
-  return !!user && has(user.following) && has(user.followers);
-};
+const areFriends = (a, b) => areMutual(a, b);
 
 // ---------------------------------------------------------------- actions
 

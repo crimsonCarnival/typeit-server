@@ -5,6 +5,9 @@ import UserAchievement from '../models/user-achievement.model.js';
 import LessonProgress from '../models/lesson-progress.model.js';
 import WordList from '../models/word-list.model.js';
 import Session from '../models/session.model.js';
+import { deleteFollowsOf, isFollowing } from './follow.service.js';
+
+export { followUser, unfollowUser, getFollowers, getFollowing } from './follow.service.js';
 
 /**
  * Escapes regex-special characters in user input used for pattern matching.
@@ -77,6 +80,7 @@ export const deleteAccount = async (userId) => {
     UserAchievement.deleteMany({ userId }),
     LessonProgress.deleteMany({ userId }),
     WordList.deleteMany({ userId }),
+    deleteFollowsOf(userId),
   ]);
 
   return true;
@@ -110,9 +114,10 @@ export const getPublicProfile = async (userId, viewerId = null) => {
   const user = await User.findOne({
     _id: userId,
     status: 'active'
-  }).select('displayName username avatar bio stats createdAt followers following');
+  }).select('displayName username avatar bio stats createdAt followersCount followingCount');
 
   if (!user) return null;
+  const isOwner = viewerId ? String(viewerId) === String(user._id) : false;
 
   return {
     id: user._id,
@@ -122,88 +127,9 @@ export const getPublicProfile = async (userId, viewerId = null) => {
     bio: user.bio || '',
     stats: user.stats,
     createdAt: user.createdAt,
-    followersCount: user.followers.length,
-    followingCount: user.following.length,
-    isFollowing: viewerId
-      ? user.followers.some((id) => id.toString() === viewerId.toString())
-      : false,
-    isOwner: viewerId ? viewerId.toString() === user._id.toString() : false,
+    followersCount: user.followersCount ?? 0,
+    followingCount: user.followingCount ?? 0,
+    isFollowing: viewerId && !isOwner ? await isFollowing(viewerId, user._id) : false,
+    isOwner,
   };
-};
-
-/**
- * Makes `followerId` follow `targetId`.
- */
-export const followUser = async (followerId, targetId) => {
-  if (followerId.toString() === targetId.toString()) {
-    throw new Error('You cannot follow yourself');
-  }
-
-  const target = await User.findOne({ _id: targetId, status: 'active' });
-  if (!target) {
-    throw new Error('User not found');
-  }
-
-  await Promise.all([
-    User.findByIdAndUpdate(followerId, { $addToSet: { following: targetId } }),
-    User.findByIdAndUpdate(targetId, { $addToSet: { followers: followerId } }),
-  ]);
-
-  const [targetUser, follower] = await Promise.all([
-    User.findById(targetId).select('followers'),
-    User.findById(followerId).select('following'),
-  ]);
-
-  return {
-    isFollowing: true,
-    followersCount: targetUser.followers.length,
-    followingCount: follower.following.length,
-  };
-};
-
-/**
- * Makes `followerId` unfollow `targetId`.
- */
-export const unfollowUser = async (followerId, targetId) => {
-  if (followerId.toString() === targetId.toString()) {
-    throw new Error('You cannot unfollow yourself');
-  }
-
-  await Promise.all([
-    User.findByIdAndUpdate(followerId, { $pull: { following: targetId } }),
-    User.findByIdAndUpdate(targetId, { $pull: { followers: followerId } }),
-  ]);
-
-  const [targetUser, follower] = await Promise.all([
-    User.findById(targetId).select('followers'),
-    User.findById(followerId).select('following'),
-  ]);
-
-  return {
-    isFollowing: false,
-    followersCount: targetUser?.followers.length || 0,
-    followingCount: follower?.following.length || 0,
-  };
-};
-
-/**
- * Lists the users that follow `userId`.
- */
-export const getFollowers = async (userId) => {
-  const user = await User.findById(userId)
-    .select('followers')
-    .populate('followers', 'username displayName avatar stats.bestWpm');
-
-  return user ? user.followers : [];
-};
-
-/**
- * Lists the users that `userId` follows.
- */
-export const getFollowing = async (userId) => {
-  const user = await User.findById(userId)
-    .select('following')
-    .populate('following', 'username displayName avatar stats.bestWpm');
-
-  return user ? user.following : [];
 };

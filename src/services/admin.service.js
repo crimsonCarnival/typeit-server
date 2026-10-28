@@ -1,4 +1,5 @@
 import User from '../models/user.model.js';
+import { deleteAccount } from './user.service.js';
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -143,8 +144,8 @@ export const deleteUser = async (userId, adminId) => {
     }
   }
 
-  const result = await User.findByIdAndDelete(userId);
-  return !!result;
+  // Same cleanup as a self-service deletion (runs, follows, progress...).
+  return await deleteAccount(userId);
 };
 
 /**

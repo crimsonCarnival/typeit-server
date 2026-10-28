@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js --watch . --ext js,mjs,json,jsx",
-    "test": "node --test"
+    "test": "node --test",
+    "migrate:follows": "node scripts/migrate-follows.js"
   },
   "repository": {
     "type": "git",

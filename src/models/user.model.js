@@ -147,18 +147,18 @@ const userSchema = new Schema(
       type: Date,
       default: null,
     },
-    followers: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-      },
-    ],
-    following: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-      },
-    ],
+    // Follow edges live in the Follow collection; these counters mirror it
+    // (see services/follow.service.js, scripts/migrate-follows.js).
+    followersCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    followingCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   {
     timestamps: true,

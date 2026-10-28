@@ -15,8 +15,8 @@ export const toPublicUser = (user) => ({
   role: user.role,
   timezone: user.timezone,
   stats: user.stats,
-  followers: user.followers?.length || 0,
-  following: user.following?.length || 0,
+  followersCount: user.followersCount ?? 0,
+  followingCount: user.followingCount ?? 0,
   createdAt: user.createdAt,
 });
 

@@ -2,6 +2,7 @@ import express from 'express';
 import User from '../models/user.model.js';
 import { auth } from '../middleware/auth.middleware.js';
 import { isOnline } from '../services/race/race-manager.js';
+import { getMutualIds } from '../services/follow.service.js';
 
 const router = express.Router();
 
@@ -11,9 +12,7 @@ const router = express.Router();
  */
 router.get('/friends', auth, async (req, res) => {
   try {
-    const me = await User.findById(req.user._id).select('following followers').lean();
-    const followers = new Set((me?.followers ?? []).map(String));
-    const mutual = (me?.following ?? []).filter((id) => followers.has(String(id)));
+    const mutual = await getMutualIds(req.user._id);
     const users = await User.find({ _id: { $in: mutual }, status: 'active' })
       .select('username displayName avatar')
       .lean();
