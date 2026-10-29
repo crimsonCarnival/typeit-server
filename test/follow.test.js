@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import Follow from '../src/models/follow.model.js';
 import User from '../src/models/user.model.js';
+import Notification from '../src/models/notification.model.js';
 import { areMutual, deleteFollowsOf, followUser, getMutualIds, unfollowUser } from '../src/services/follow.service.js';
 
 const id = () => new mongoose.Types.ObjectId();
@@ -17,6 +18,8 @@ describe('follow service', () => {
     const create = mock.method(Follow, 'create', async () => ({}));
     const inc = mock.method(User, 'updateOne', async () => ({}));
     mock.method(User, 'findById', (uid) => leanOf(String(uid) === String(b) ? { followersCount: 1 } : { followingCount: 1 }));
+    mock.method(Follow, 'exists', async () => null);
+    mock.method(Notification, 'updateOne', async () => ({ upsertedCount: 0 }));
 
     const out = await followUser(a, b);
     assert.deepEqual(create.mock.calls[0].arguments[0], { follower: a, followee: b });

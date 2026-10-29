@@ -1,4 +1,5 @@
 import mongoose, { Schema } from 'mongoose';
+import { permissionsFor } from '../config/permissions.js';
 
 // Per-category stats bucket (one per time/word preset, plus a 'custom' bucket).
 const bucketStatsSchema = new Schema(
@@ -54,8 +55,21 @@ const userSchema = new Schema(
     },
     role: {
       type: String,
-      enum: ['user', 'moderator', 'admin'],
+      enum: ['user', 'moderator', 'admin', 'founder'],
       default: 'user',
+    },
+    // Single permissions an admin added to or took from this player on top of
+    // their role's (config/permissions.js). Ignored for admins.
+    permissionGrants: { type: [String], default: [] },
+    permissionRevokes: { type: [String], default: [] },
+    // When missed notifications were last looked for (services/notification-catchup.js).
+    notificationsSyncedAt: { type: Date, default: null },
+    // Optional notification categories the player muted (false = muted); missing = on.
+    notificationPrefs: {
+      social: Boolean,
+      achievements: Boolean,
+      races: Boolean,
+      daily: Boolean,
     },
     status: {
       type: String,
@@ -198,6 +212,15 @@ userSchema.index({ 'stats.bestWpm': -1 });
 userSchema.index({ 'stats.raceRating': -1 });
 userSchema.index({ role: 1 });
 userSchema.index({ status: 1 });
+
+// Every response that sends a user document also says what that user may do, so
+// the client never has to guess (and an edit to a profile can't drop it).
+userSchema.set('toJSON', {
+  transform: (doc, ret) => {
+    ret.permissions = permissionsFor(doc);
+    return ret;
+  },
+});
 
 const User = mongoose.model('User', userSchema);
 

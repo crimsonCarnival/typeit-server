@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Follow from '../models/follow.model.js';
 import User from '../models/user.model.js';
 import { publicHandle, publicName } from '../utils/public-identity.js';
+import { notify } from './notification.service.js';
 
 export const FOLLOW_LIST_LIMIT = 100;
 const LIST_FIELDS = 'username displayName avatar stats.bestWpm';
@@ -17,6 +18,21 @@ const countsOf = async (followerId, targetId) => {
     followersCount: target?.followersCount ?? 0,
     followingCount: follower?.followingCount ?? 0,
   };
+};
+
+/** Tells the followed player, noting when it makes them friends (a mutual follow). */
+const announceFollow = async (followerId, targetId) => {
+  const [follower, mutual] = await Promise.all([User.findById(followerId).select('username displayName'), areMutual(followerId, targetId)]);
+  if (!follower) return;
+  const name = publicName(follower);
+  await notify(targetId, {
+    type: 'follow',
+    title: mutual ? `${name} followed you back` : `${name} started following you`,
+    body: mutual ? "You're friends now: you can invite each other to races." : '',
+    link: `/user/${followerId}`,
+    // One notice per follower, however many times they unfollow and follow again.
+    dedupeKey: `follow:${followerId}`,
+  });
 };
 
 /**
@@ -45,6 +61,8 @@ export const followUser = async (followerId, targetId) => {
       User.updateOne({ _id: followerId }, { $inc: { followingCount: 1 } }),
       User.updateOne({ _id: targetId }, { $inc: { followersCount: 1 } }),
     ]);
+    // Telling them is best effort and must not slow down or fail the follow.
+    announceFollow(followerId, targetId).catch((err) => console.error('[follow] could not notify:', err?.message || err));
   }
 
   return { isFollowing: true, ...(await countsOf(followerId, targetId)) };

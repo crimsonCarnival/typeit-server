@@ -6,6 +6,8 @@ import { router as routes } from './src/routes/index.js';
 import { logger } from './src/middleware/logger.middleware.js';
 import { PORT, NODE_ENV, CORS_ORIGINS } from './src/config/env.js';
 import { attachRaceSocket } from './src/sockets/race.socket.js';
+import { startNotificationScheduler } from './src/services/notification-scheduler.js';
+import { applyConfiguredRoles } from './src/services/bootstrap-roles.js';
 import { errorHandler, notFound, sanitizeBody, securityHeaders } from './src/middleware/security.middleware.js';
 import { rateLimit } from './src/middleware/rateLimit.middleware.js';
 
@@ -64,8 +66,12 @@ const server = app.listen(PORT, () => {
 // Live races share the HTTP port (WebSocket upgrade on /ws/race) with the
 // same origin policy as CORS.
 attachRaceSocket(server, isAllowedOrigin);
+startNotificationScheduler();
 
-connectDB().catch((err) => {
+connectDB()
+  // A failure here must not take the server down: the roles can be fixed in the admin area.
+  .then(() => applyConfiguredRoles().catch((err) => console.error('[roles] could not apply server settings:', err?.message || err)))
+  .catch((err) => {
   console.error('[server] initial DB connection failed:', err?.message || err);
   if (NODE_ENV === 'production') {
     process.exit(1);

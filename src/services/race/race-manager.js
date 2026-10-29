@@ -6,6 +6,7 @@ import { gameEvents } from '../../events/game-events.js';
 import { generateText, startRaceSession } from '../game.service.js';
 import { syncAchievements } from '../achievement.service.js';
 import { areMutual } from '../follow.service.js';
+import { notify } from '../notification.service.js';
 import { formMatches } from './matchmaking.js';
 import {
   CHAT_COOLDOWN_MS,
@@ -89,6 +90,47 @@ const broadcast = (room, now = Date.now()) => {
 const everyoneIn = (room) => [...room.players.map((p) => p.userId), ...(room.spectators ?? [])];
 
 const error = (userId, code) => sendTo(userId, { type: 'error', code });
+
+// Notifications are created elsewhere; this socket just delivers them live.
+gameEvents.on('notification', ({ userId, notification }) => sendTo(userId, { type: 'notification', notification }));
+
+/** Every open room, for the admin area (private rooms included). */
+export const listRoomsForAdmin = () =>
+  [...rooms.values()].map((r) => ({
+    code: r.code,
+    name: r.name,
+    state: r.state,
+    isPrivate: r.isPrivate,
+    rated: !!r.rated,
+    hostId: r.hostId,
+    players: r.players.map((p) => ({ userId: p.userId, displayName: p.displayName, muted: !!r.muted?.includes(p.userId) })),
+    spectators: r.spectators.length,
+  }));
+
+/**
+ * Moderator action on a live room: remove a player for good ('kick'), or
+ * silence/unsilence their chat. Works in any state, rated rooms included.
+ * @returns {string|null} an error code, or null on success
+ */
+export const moderateRoom = (code, { action, userId }, now = Date.now()) => {
+  const room = typeof code === 'string' && rooms.get(code.trim().toUpperCase());
+  if (!room) return 'room-not-found';
+  if (!findPlayer(room, userId)) return 'not-in-room';
+  if (action === 'kick') {
+    (room.banned ??= []).includes(userId) || room.banned.push(userId);
+    detach(userId, now);
+    sendTo(userId, { type: 'kicked', code: room.code, name: room.name });
+    void notify(userId, { type: 'account', title: `You were removed from "${room.name}"`, body: 'A moderator removed you from that race.', dedupeKey: `kicked:${room.code}:${userId}` });
+    return null;
+  }
+  if (action === 'mute' || action === 'unmute') {
+    room.muted = (room.muted ?? []).filter((id) => id !== userId);
+    if (action === 'mute') room.muted.push(userId);
+    broadcast(room, now);
+    return null;
+  }
+  return 'bad-action';
+};
 
 export const isOnline = (userId) => (sockets.get(String(userId))?.size ?? 0) > 0;
 
@@ -194,6 +236,7 @@ const actions = {
     if (err) return error(user.userId, err);
     roomOf.delete(target);
     sendTo(target, { type: 'kicked', code: room.code, name: room.name });
+    void notify(target, { type: 'account', title: `You were removed from "${room.name}"`, body: "The host removed you, so you can't rejoin that race.", dedupeKey: `kicked:${room.code}:${target}` });
     broadcast(room, now);
   },
 
@@ -215,6 +258,13 @@ const actions = {
     if (!isOnline(target)) return error(user.userId, 'friend-offline');
     if (!(await areFriends(user.userId, target))) return error(user.userId, 'not-friends');
     lastInvite.set(key, Date.now());
+    void notify(target, {
+      type: 'race-invite',
+      title: `${user.displayName} invited you to a race`,
+      body: room.name,
+      link: `/race/${room.code}`,
+      dedupeKey: `invite:${room.code}:${user.userId}:${Math.floor(Date.now() / 60000)}`,
+    });
     sendTo(target, {
       type: 'invited',
       code: room.code,
@@ -298,6 +348,7 @@ function say(user, content, now) {
   const code = roomOf.get(user.userId) ?? watching.get(user.userId);
   const room = code && rooms.get(code);
   if (!room) return error(user.userId, 'not-in-room');
+  if (room.muted?.includes(user.userId)) return error(user.userId, 'muted');
   if (now - (lastChat.get(user.userId) ?? 0) < CHAT_COOLDOWN_MS) return error(user.userId, 'chat-cooldown');
   lastChat.set(user.userId, now);
   const msg = { type: 'chat', from: { userId: user.userId, displayName: user.displayName }, ...content, at: now };
@@ -412,6 +463,23 @@ const startRace = async (room) => {
   broadcast(room);
 };
 
+/** Tells each racer how the race went, and what it did to their rating. */
+const notifyRaceResults = (room, saved, changes) =>
+  Promise.all(
+    room.players.map((p) => {
+      const delta = changes?.get(p.userId);
+      const rating = delta === undefined || delta === null ? '' : ` Rating ${delta >= 0 ? '+' : ''}${delta}.`;
+      const won = p.userId === room.winnerId;
+      return notify(p.userId, {
+        type: 'race-result',
+        title: won ? `You won "${room.name}"` : p.place ? `You placed #${p.place} in "${room.name}"` : `You didn't finish "${room.name}"`,
+        body: p.result ? `${p.result.wpm} WPM at ${Math.round(p.result.accuracy)}% accuracy.${rating}` : rating.trim(),
+        link: '/profile',
+        dedupeKey: `race:${saved._id}`,
+      });
+    })
+  );
+
 const persistRace = async (room) => {
   try {
     const changes = room.rated
@@ -422,7 +490,7 @@ const persistRace = async (room) => {
           verified: !!p.result?.ranked,
         })))
       : null;
-    await Race.create({
+    const saved = await Race.create({
       code: room.code,
       name: room.name,
       hostId: room.hostId,
@@ -448,6 +516,7 @@ const persistRace = async (room) => {
         ratingChange: changes ? changes.get(p.userId) : null,
       })),
     });
+    await notifyRaceResults(room, saved, changes);
     if (changes) {
       await User.bulkWrite(
         [...changes].map(([userId, delta]) => ({

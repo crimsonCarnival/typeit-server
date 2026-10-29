@@ -3,6 +3,7 @@ import User from '../models/user.model.js';
 import { JWT_SECRET } from '../config/env.js';
 import { JWT_VERIFY_OPTIONS } from '../services/auth.service.js';
 import { errorMessage } from '../utils/http.js';
+import { hasPermission } from '../config/permissions.js';
 
 /**
  * Authentication middleware
@@ -83,6 +84,21 @@ export const requireRole = (...roles) => {
 
     next();
   };
+};
+
+/**
+ * Requires every listed permission (see config/permissions.js): the user's
+ * role's, plus their own grants, minus their own revokes.
+ * @param  {...string} permissions
+ */
+export const requirePermission = (...permissions) => (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  if (!permissions.every((p) => hasPermission(req.user, p))) {
+    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+  }
+  next();
 };
 
 /**

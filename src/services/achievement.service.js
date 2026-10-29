@@ -17,6 +17,7 @@ import {
   WELL_TRAVELED_RUNS,
 } from '../config/achievements.js';
 import { dateKey } from './daily.service.js';
+import { notify } from './notification.service.js';
 import {
   comebackProgress,
   countBreakthroughs,
@@ -206,6 +207,28 @@ export const maskHidden = (card, hint, index) => ({
   unlockedAt: null,
 });
 
+/**
+ * Notifies the player of badges they just earned. A pile of them at once (the
+ * first evaluation of an old account) is one notice, not a flood.
+ */
+const announceUnlocks = async (userId, ids) => {
+  if (!ids.length) return;
+  const named = ids.map((id) => ACHIEVEMENTS.find((a) => a.id === id)).filter(Boolean);
+  if (named.length > 3) {
+    await notify(userId, {
+      type: 'achievement',
+      title: `You unlocked ${named.length} achievements`,
+      body: named.slice(0, 3).map((a) => a.name).join(', ') + ' and more.',
+      link: '/achievements',
+      dedupeKey: `achievements:${ids.slice().sort().join(',')}`,
+    });
+    return;
+  }
+  for (const a of named) {
+    await notify(userId, { type: 'achievement', title: `Achievement unlocked: ${a.name}`, body: a.description, link: '/achievements', dedupeKey: `achievement:${a.id}` });
+  }
+};
+
 /** Records today's play on the player's streak. */
 export const recordPlayDay = async (userId, now = new Date()) => {
   const user = await User.findById(userId).select('stats.streak').lean();
@@ -238,6 +261,8 @@ export const syncAchievements = async (userId, now = new Date()) => {
     );
     newlyUnlocked = Object.keys(res.upsertedIds || {}).map((i) => unlocked[Number(i)].id);
   }
+
+  await announceUnlocks(userId, newlyUnlocked);
 
   const stored = await UserAchievement.find({ userId }).lean();
   const unlockedAt = new Map(stored.map((s) => [s.achievementId, s.unlockedAt]));

@@ -12,6 +12,8 @@ const dailyChallengeSchema = new Schema(
     timeMax: { type: Number, required: true },
     punctuationEnabled: { type: Boolean, default: false },
     numbersEnabled: { type: Boolean, default: false },
+    // Set once the day's rank notifications went out.
+    resultsNotifiedAt: { type: Date, default: null },
   },
   { timestamps: true, versionKey: false }
 );

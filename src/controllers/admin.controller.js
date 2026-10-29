@@ -117,7 +117,7 @@ const adminController = {
         data: user,
       });
     } catch (error) {
-      const status = error.message.includes('Cannot') || error.message.includes('Invalid') ? 400 : 500;
+      const status = error.status ?? (error.message.includes('Cannot') || error.message.includes('Invalid') ? 400 : 500);
       res.status(status).json({
         success: false,
         error: errorMessage(error, status),
@@ -155,7 +155,7 @@ const adminController = {
         data: user,
       });
     } catch (error) {
-      const status = error.message.includes('Cannot') || error.message.includes('Only') ? 403 : 500;
+      const status = error.status ?? (error.message.includes('Cannot') || error.message.includes('Only') ? 403 : 500);
       res.status(status).json({
         success: false,
         error: errorMessage(error, status),
@@ -186,7 +186,7 @@ const adminController = {
         data: user,
       });
     } catch (error) {
-      const status = error.message.includes('Cannot') || error.message.includes('Only') ? 403 : 500;
+      const status = error.status ?? (error.message.includes('Cannot') || error.message.includes('Only') ? 403 : 500);
       res.status(status).json({
         success: false,
         error: errorMessage(error, status),
@@ -217,7 +217,7 @@ const adminController = {
         data: user,
       });
     } catch (error) {
-      const status = error.message.includes('Cannot') || error.message.includes('Only') ? 403 : 500;
+      const status = error.status ?? (error.message.includes('Cannot') || error.message.includes('Only') ? 403 : 500);
       res.status(status).json({
         success: false,
         error: errorMessage(error, status),
@@ -269,7 +269,7 @@ const adminController = {
         data: { deleted },
       });
     } catch (error) {
-      const status = error.message.includes('Cannot') || error.message.includes('Only') ? 403 : 500;
+      const status = error.status ?? (error.message.includes('Cannot') || error.message.includes('Only') ? 403 : 500);
       res.status(status).json({
         success: false,
         error: errorMessage(error, status),
