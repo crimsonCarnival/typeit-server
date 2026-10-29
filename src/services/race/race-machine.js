@@ -63,6 +63,8 @@ export const createRoom = ({ code, host, name, isPrivate, rated = false, now, ..
   state: 'lobby',
   players: [newPlayer(host)],
   spectators: [],
+  // Players the host kicked: they can't join or watch this room again.
+  banned: [],
   text: null,
   startAt: null,
   finishedAt: null,
@@ -100,6 +102,7 @@ const backToLobby = (room) => {
 };
 
 export const joinRoom = (room, player, now) => {
+  if (isBanned(room, player.userId)) return 'banned';
   if (findPlayer(room, player.userId)) {
     findPlayer(room, player.userId).connected = true;
     return null;
@@ -109,6 +112,27 @@ export const joinRoom = (room, player, now) => {
   room.players.push(newPlayer(player));
   // A newcomer isn't ready, so any countdown in progress stops.
   if (room.state === 'countdown') backToLobby(room);
+  room.updatedAt = now;
+  return null;
+};
+
+export const isBanned = (room, userId) => !!room.banned?.includes(userId);
+
+/**
+ * Host removes a player and bars them from the room for good (kept across
+ * rematches). Not during a race, and not in rated quick matches, whose host
+ * is just whoever was matched first.
+ */
+export const kickPlayer = (room, hostId, targetId, now) => {
+  if (room.hostId !== hostId) return 'not-host';
+  if (targetId === hostId) return 'cannot-kick-self';
+  if (room.rated) return 'rated-room';
+  if (room.state === 'racing') return 'already-started';
+  if (!findPlayer(room, targetId)) return 'not-in-room';
+  room.players = room.players.filter((p) => p.userId !== targetId);
+  if (!room.banned.includes(targetId)) room.banned.push(targetId);
+  // The countdown survives as long as everyone still there is ready.
+  if (room.state === 'countdown' && !allReady(room)) backToLobby(room);
   room.updatedAt = now;
   return null;
 };

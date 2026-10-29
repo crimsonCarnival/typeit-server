@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { formMatches } from '../src/services/race/matchmaking.js';
-import { createRoom, finishRace, joinRoom, normalizeSettings, ratingChanges, recordFinish, resetForRematch, setReady, tick, publicRoom } from '../src/services/race/race-machine.js';
+import { createRoom, finishRace, joinRoom, kickPlayer, normalizeSettings, ratingChanges, recordFinish, resetForRematch, setReady, tick, publicRoom } from '../src/services/race/race-machine.js';
 import { cleanChat } from '../src/services/race/race-manager.js';
 import { _validShape } from '../src/sockets/race.socket.js';
 import { CHAT_MAX_LENGTH, QUICK_MATCH_MAX_PLAYERS, QUICK_MATCH_WAIT_MS, QUICK_MATCH_WIDEN_AFTER_MS, RACE_MAX_PLAYERS } from '../src/config/race.js';
@@ -84,6 +84,62 @@ describe('rooms', () => {
   it('only rematches a finished race', () => {
     const room = createRoom({ code: 'X', host: user('h'), wordCount: 25, now: 0 });
     assert.equal(resetForRematch(room, 'h', 0), 'not-finished');
+  });
+});
+
+describe('kicking', () => {
+  const lobby = () => {
+    const room = createRoom({ code: 'TYPE-KICK', host: user('h'), name: 'x', wordCount: 25, maxPlayers: 4, now: 0 });
+    joinRoom(room, user('a'), 0);
+    return room;
+  };
+
+  it('removes the player and bars them from rejoining', () => {
+    const room = lobby();
+    assert.equal(kickPlayer(room, 'h', 'a', 1), null);
+    assert.equal(room.players.some((p) => p.userId === 'a'), false);
+    assert.equal(joinRoom(room, user('a'), 2), 'banned');
+  });
+
+  it('keeps the ban across a rematch', () => {
+    const room = lobby();
+    kickPlayer(room, 'h', 'a', 1);
+    room.state = 'finished';
+    assert.equal(resetForRematch(room, 'h', 2), null);
+    assert.equal(joinRoom(room, user('a'), 3), 'banned');
+  });
+
+  it('is host only and never on yourself', () => {
+    const room = lobby();
+    assert.equal(kickPlayer(room, 'a', 'h', 1), 'not-host');
+    assert.equal(kickPlayer(room, 'h', 'h', 1), 'cannot-kick-self');
+    assert.equal(kickPlayer(room, 'h', 'zz', 1), 'not-in-room');
+  });
+
+  it('is refused mid-race and in rated rooms', () => {
+    const racing = lobby();
+    racing.state = 'racing';
+    assert.equal(kickPlayer(racing, 'h', 'a', 1), 'already-started');
+    const rated = createRoom({ code: 'TYPE-RATE', host: user('h'), name: 'x', wordCount: 25, rated: true, now: 0 });
+    joinRoom(rated, user('a'), 0);
+    assert.equal(kickPlayer(rated, 'h', 'a', 1), 'rated-room');
+  });
+
+  it('stops a countdown that is no longer everyone ready', () => {
+    const room = lobby();
+    joinRoom(room, user('b'), 0);
+    for (const id of ['h', 'a', 'b']) setReady(room, id, true, 1);
+    assert.equal(room.state, 'countdown');
+    kickPlayer(room, 'h', 'b', 2);
+    // h and a are both still ready, so the race goes ahead without b.
+    assert.equal(room.state, 'countdown');
+    kickPlayer(room, 'h', 'a', 3);
+    assert.equal(room.state, 'lobby');
+  });
+
+  it('is an allowed socket message, and public by default', () => {
+    assert.equal(_validShape({ type: 'kick', userId: 'a' }), true);
+    assert.equal(createRoom({ code: 'TYPE-PUBL', host: user('h'), name: 'x', wordCount: 25, now: 0 }).isPrivate, false);
   });
 });
 

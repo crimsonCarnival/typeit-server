@@ -43,6 +43,7 @@ const SHAPES = {
   cancel: {},
   startNow: {},
   invite: { userId: 'string' },
+  kick: { userId: 'string' },
   list: {},
   queue: {},
   unqueue: {},

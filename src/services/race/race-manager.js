@@ -34,7 +34,9 @@ import {
   cancelCountdown,
   createRoom,
   findPlayer,
+  isBanned,
   joinRoom,
+  kickPlayer,
   leaveRoom,
   normalizeSettings,
   publicRoom,
@@ -183,6 +185,18 @@ const actions = {
     withRoom(user, (room) => setReady(room, user.userId, ready === true, now), now);
   },
 
+  /** Host only: removes a player and bars them from coming back. */
+  kick(user, { userId: target }, now) {
+    if (typeof target !== 'string') return error(user.userId, 'bad-kick');
+    const room = rooms.get(roomOf.get(user.userId));
+    if (!room) return error(user.userId, 'not-in-room');
+    const err = kickPlayer(room, user.userId, target, now);
+    if (err) return error(user.userId, err);
+    roomOf.delete(target);
+    sendTo(target, { type: 'kicked', code: room.code, name: room.name });
+    broadcast(room, now);
+  },
+
   cancel(user, _msg, now) {
     withRoom(user, (room) => cancelCountdown(room, user.userId, now), now);
   },
@@ -255,6 +269,7 @@ const actions = {
       failedJoins.get(user.userId).push(now);
       return error(user.userId, 'room-not-found');
     }
+    if (isBanned(room, user.userId)) return error(user.userId, 'banned');
     if (findPlayer(room, user.userId)) return error(user.userId, 'already-racing');
     if (room.spectators.length >= RACE_MAX_SPECTATORS) return error(user.userId, 'too-many-spectators');
     detach(user.userId, now);

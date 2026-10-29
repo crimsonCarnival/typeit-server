@@ -7,7 +7,7 @@ const raceSchema = new Schema(
     code: { type: String, required: true },
     name: { type: String, default: '' },
     hostId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    isPrivate: { type: Boolean, default: true },
+    isPrivate: { type: Boolean, default: false },
     mode: { type: String, enum: ['words', 'time', 'phrases'], default: 'words' },
     rated: { type: Boolean, default: false },
     category: { type: String, default: null },
