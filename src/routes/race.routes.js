@@ -4,6 +4,7 @@ import { auth } from '../middleware/auth.middleware.js';
 import { isOnline } from '../services/race/race-manager.js';
 import { publicHandle, publicName } from '../utils/public-identity.js';
 import { getMutualIds } from '../services/follow.service.js';
+import { getRaceHistory, getRaceMistakes } from '../services/race/race-mistakes.js';
 
 const router = express.Router();
 
@@ -56,6 +57,33 @@ router.get('/leaderboard', async (req, res) => {
     res.json({ success: true, data: { entries } });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Could not load the race leaderboard' });
+  }
+});
+
+/**
+ * GET /api/race/history
+ * The caller's latest finished races.
+ */
+router.get('/history', auth, async (req, res) => {
+  try {
+    res.json({ success: true, data: { races: await getRaceHistory(req.user._id) } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Could not load your races' });
+  }
+});
+
+/**
+ * GET /api/race/:ref/mistakes   (ref: race id, or invite code for its latest race)
+ * Every racer's mistakes in one finished race. Visible to the racers and the
+ * room's spectators only.
+ */
+router.get('/:ref/mistakes', auth, async (req, res) => {
+  try {
+    const out = await getRaceMistakes(req.params.ref, req.user._id);
+    if (out.error) return res.status(out.status).json({ success: false, error: out.error });
+    res.json({ success: true, data: out });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Could not load the comparison' });
   }
 });
 
