@@ -55,8 +55,8 @@ const dailyController = {
   },
 
   /**
-   * POST /api/daily/ghost  { date? }
-   * Practice run on a day's text against its winner's ghost (today's only
+   * POST /api/daily/ghost  { date?, target?: 'leader'|'pb' }
+   * Practice run on a day's text against its winner's ghost or your PB (today's only
    * after finishing your own attempt). Saved, never ranked.
    */
   ghost: async (req, res) => {
@@ -65,7 +65,8 @@ const dailyController = {
       if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return res.status(400).json({ success: false, error: 'Invalid date' });
       }
-      const out = await startDailyGhostRun(req.user._id, date);
+      const target = req.body?.target === 'pb' ? 'pb' : 'leader';
+      const out = await startDailyGhostRun(req.user._id, date, new Date(), target);
       if (out.error) return res.status(out.status).json({ success: false, error: out.error });
       res.json({ success: true, data: out });
     } catch (err) {

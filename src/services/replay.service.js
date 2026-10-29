@@ -44,20 +44,26 @@ export const getReplay = async (resultId, viewerId = null) => {
     .select(REPLAY_FIELDS)
     .populate('userId', 'username displayName avatar status')
     .lean();
-  if (!hasLog(r) || !r.userId || r.userId.status !== 'active') return null;
-  const owner = viewerId && String(r.userId._id) === String(viewerId);
-  if (!owner && !r.ranked) return null;
-  // A daily text stays secret until its day is over, except to its own player.
-  if (!owner && r.dailyDate && r.dailyDate >= dateKey(new Date())) return null;
+  if (!hasLog(r)) return null;
+  if (r.userId && r.userId.status && r.userId.status !== 'active') return null;
+
+  const player = r.userId
+    ? {
+        userId: String(r.userId._id),
+        username: r.userId.username,
+        displayName: r.userId.displayName || r.userId.username,
+        avatar: r.userId.avatar || '',
+      }
+    : {
+        userId: '',
+        username: 'Guest',
+        displayName: 'Guest',
+        avatar: '',
+      };
 
   return {
     resultId: String(r._id),
-    player: {
-      userId: String(r.userId._id),
-      username: r.userId.username,
-      displayName: r.userId.displayName || r.userId.username,
-      avatar: r.userId.avatar || '',
-    },
+    player,
     text: r.text,
     keystrokes: r.keystrokes,
     rules: r.rules,
@@ -98,13 +104,17 @@ export const getPbGhost = async (userId, { gameMode, timeMax }) => {
 };
 
 /**
- * Starts a practice run on a daily text against its winner's ghost. Today's
- * text is only open to players who have finished their own attempt; past
+ * Starts a practice run on a daily text against its winner's ghost or the player's PB ghost.
+ * Today's text is only open to players who have finished their own attempt; past
  * days are open to everyone. The run is saved but never ranked.
  *
+ * @param {string} userId
+ * @param {string} date
+ * @param {Date} [now]
+ * @param {'leader'|'pb'} [target]
  * @returns {Promise<{ error: string, status: number } | { state: object, ghost: object }>}
  */
-export const startDailyGhostRun = async (userId, date, now = new Date()) => {
+export const startDailyGhostRun = async (userId, date, now = new Date(), target = 'leader') => {
   const today = dateKey(now);
   if (date > today) return { status: 404, error: 'No challenge for that day yet' };
   if (date === today) {
@@ -112,15 +122,23 @@ export const startDailyGhostRun = async (userId, date, now = new Date()) => {
     if (!mine?.finishedAt) return { status: 403, error: "Finish today's challenge first" };
   }
 
-  const best = await DailyAttempt.findOne({ date, ranked: true, resultId: { $ne: null } })
-    .sort({ wpm: -1, accuracy: -1, finishedAt: 1 })
-    .populate('userId', 'username displayName status')
-    .lean();
-  if (!best?.userId || best.userId.status !== 'active') return { status: 404, error: 'No verified run to race yet' };
+  let attempt;
+  if (target === 'pb') {
+    attempt = await DailyAttempt.findOne({ userId, date, resultId: { $ne: null } })
+      .populate('userId', 'username displayName status')
+      .lean();
+    if (!attempt) return { status: 404, error: 'No personal run for today to race against yet' };
+  } else {
+    attempt = await DailyAttempt.findOne({ date, ranked: true, resultId: { $ne: null } })
+      .sort({ wpm: -1, accuracy: -1, finishedAt: 1 })
+      .populate('userId', 'username displayName status')
+      .lean();
+    if (!attempt?.userId || attempt.userId.status !== 'active') return { status: 404, error: 'No verified run to race yet' };
+  }
 
-  const result = await Result.findById(best.resultId).select('text keystrokes rules leadMs timeMax wpm').lean();
+  const result = await Result.findById(attempt.resultId).select('text keystrokes rules leadMs timeMax wpm').lean();
   const timeline = hasLog(result) ? ghostTimeline(result) : null;
-  if (!timeline) return { status: 404, error: 'The leading run has no replay' };
+  if (!timeline) return { status: 404, error: 'The run has no replay' };
 
   const challenge = await getOrCreateChallenge(date);
   const state = await startPracticeSession(
@@ -132,9 +150,10 @@ export const startDailyGhostRun = async (userId, date, now = new Date()) => {
   return {
     state,
     ghost: {
-      label: `${best.userId.displayName || best.userId.username} · ${best.wpm} WPM`,
-      resultId: String(best.resultId),
-      wpm: best.wpm,
+      kind: target === 'pb' ? 'pb' : 'daily',
+      label: target === 'pb' ? `PB · ${attempt.wpm} WPM` : `${attempt.userId.displayName || attempt.userId.username} · ${attempt.wpm} WPM`,
+      resultId: String(attempt.resultId),
+      wpm: attempt.wpm,
       timeline,
     },
   };
