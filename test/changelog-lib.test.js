@@ -111,6 +111,11 @@ describe('buildChangelog', () => {
     assert.deepEqual([r.sections.fixes[0].hash, r.sections.fixes[0].repo], ['01234567', 'server']);
   });
 
+  it('keeps the UTC day and the exact time of each commit', () => {
+    const [r] = buildChangelog([commit('fix(x): y', '2026-10-29T01:30:00-05:00')]);
+    assert.deepEqual([r.sections.fixes[0].day, r.sections.fixes[0].at], ['2026-10-29', '2026-10-29T06:30:00.000Z']);
+  });
+
   it('ignores a commit with an unreadable date', () => {
     assert.deepEqual(buildChangelog([commit('feat: a', 'not a date')]), []);
   });
