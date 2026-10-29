@@ -8,6 +8,7 @@ import {
   setPassword,
   setStreakOffset,
   unlinkGoogle,
+  checkCanLinkGoogle,
 } from '../services/account-security.service.js';
 import { BlockError, block, listBlocked, unblock } from '../services/block.service.js';
 import { GoogleAuthError, googleAuthUrl, googleEnabled, handleGoogleCallback, linkWithTicket } from '../services/google-auth.service.js';
@@ -19,11 +20,14 @@ const fail = (res, error) => {
   return res.status(500).json({ success: false, error: 'Something went wrong' });
 };
 
-/** Runs an account action and answers { success: true } or the reason it was refused. */
+/**
+ * Runs an account action and answers { success: true } or the reason it was
+ * refused. Actions that change a sign-in method return a fresh session token.
+ */
 const action = (run) => async (req, res) => {
   try {
-    await run(req);
-    res.json({ success: true, data: { done: true } });
+    const out = await run(req);
+    res.json({ success: true, data: { done: true, ...(typeof out === 'string' ? { token: out } : out?.token ? { token: out.token } : {}) } });
   } catch (error) {
     fail(res, error);
   }
@@ -34,10 +38,12 @@ const accountController = {
   googleEnabled: (req, res) => res.json({ success: true, data: { enabled: googleEnabled() } }),
 
   /** POST /api/auth/google/url  { mode: 'login'|'link', nonce } */
-  googleUrl: (req, res) => {
+  googleUrl: async (req, res) => {
     try {
-      const mode = req.body?.mode === 'link' ? 'link' : 'login';
-      if (mode === 'link' && !req.user) return res.status(401).json({ success: false, error: 'Sign in first' });
+      const mode = ['link', 'reauth'].includes(req.body?.mode) ? req.body.mode : 'login';
+      if (mode !== 'login' && !req.user) return res.status(401).json({ success: false, error: 'Sign in first' });
+      // Linking adds a lasting way in: it needs the password, not just a session.
+      if (mode === 'link') await checkCanLinkGoogle(req.userId, req.body?.password);
       res.json({ success: true, data: { url: googleAuthUrl({ mode, nonce: req.body?.nonce, userId: req.user?._id }) } });
     } catch (error) {
       fail(res, error);
@@ -54,7 +60,7 @@ const accountController = {
   /** POST /api/auth/google/link  { ticket } — the signed-in user finishes linking Google. */
   linkGoogle: action((req) => linkWithTicket(req.userId, req.body?.ticket)),
   unlinkGoogle: action((req) => unlinkGoogle(req.userId)),
-  setPassword: action((req) => setPassword(req.userId, { current: req.body?.current, next: req.body?.next })),
+  setPassword: action((req) => setPassword(req.userId, { current: req.body?.current, next: req.body?.next, reauth: req.body?.reauth })),
   setEmail: action((req) => setEmail(req.userId, { password: req.body?.password, email: req.body?.email })),
   revokeAll: action((req) => revokeAllSessions(req.userId)),
   changeUsername: action((req) => changeUsername(req.userId, req.body?.username)),

@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import User from '../src/models/user.model.js';
+import Notification from '../src/models/notification.model.js';
 import { GOOGLE_CLIENT_ID, JWT_SECRET } from '../src/config/env.js';
 import { generateToken, tokenIsCurrent } from '../src/services/auth.service.js';
 import {
@@ -15,8 +16,9 @@ import {
   setPassword,
   setStreakOffset,
   unlinkGoogle,
+  checkCanLinkGoogle,
 } from '../src/services/account-security.service.js';
-import { GoogleAuthError, checkIdentity, clientReturnUrl, completeGoogle, linkWithTicket, readState } from '../src/services/google-auth.service.js';
+import { GoogleAuthError, checkIdentity, clientReturnUrl, completeGoogle, linkWithTicket, readState, reauthValid } from '../src/services/google-auth.service.js';
 
 const id = () => new mongoose.Types.ObjectId();
 const DAY = 86_400_000;
@@ -46,15 +48,33 @@ describe('session tokens', () => {
 describe('passwords and email', () => {
   afterEach(() => mock.restoreAll());
   const account = async (password) => {
-    const doc = { password: password ? await bcrypt.hash(password, 4) : null, googleId: 'g1', save: mock.fn(async () => {}) };
+    const doc = { _id: id(), tokenVersion: 0, password: password ? await bcrypt.hash(password, 4) : null, googleId: 'g1', save: mock.fn(async () => {}) };
     mock.method(User, 'findById', () => query(doc));
+    // Changing a sign-in method tells the player; that is not what these tests check.
+    mock.method(Notification, 'updateOne', async () => ({ upsertedCount: 0 }));
+    mock.method(Notification, 'create', async () => ({}));
     return doc;
   };
 
-  it('a Google-only account can add a password without a current one', async () => {
+  it('a Google-only account needs a fresh Google confirmation to add a password', async () => {
+    const userId = id();
     const doc = await account(null);
-    await setPassword(id(), { next: 'new-password-1' });
+    doc._id = userId;
+    await assert.rejects(setPassword(userId, { next: 'new-password-1' }), /Confirm with Google/);
+    await assert.rejects(setPassword(userId, { next: 'new-password-1', reauth: 'forged' }), /Confirm with Google/);
+    const other = jwt.sign({ u: id() }, JWT_SECRET, { audience: 'typeit:google-reauth' });
+    await assert.rejects(setPassword(userId, { next: 'new-password-1', reauth: other }), /Confirm with Google/, 'a ticket for someone else');
+    const reauth = jwt.sign({ u: userId }, JWT_SECRET, { audience: 'typeit:google-reauth' });
+    const token = await setPassword(userId, { next: 'new-password-1', reauth });
     assert.ok(await bcrypt.compare('new-password-1', doc.password));
+    assert.equal(doc.tokenVersion, 1, 'other sessions signed out');
+    assert.equal(jwt.verify(token, JWT_SECRET).tv, 1, 'this session continues with a fresh token');
+  });
+
+  it('linking Google needs the password of an account that has one', async () => {
+    await account('pw-123456');
+    await assert.rejects(checkCanLinkGoogle(id(), 'wrong'), /wrong/);
+    await checkCanLinkGoogle(id(), 'pw-123456');
   });
 
   it('changing a password needs the current one', async () => {
@@ -160,8 +180,11 @@ describe('Google sign-in', () => {
     mock.method(User, 'findOne', () => query(null));
     await assert.rejects(linkWithTicket(String(id()), ticket), /bad-request/);
     assert.equal(update.mock.callCount(), 0);
+    mock.method(Notification, 'updateOne', async () => ({ upsertedCount: 0 }));
+    mock.method(Notification, 'create', async () => ({}));
     await linkWithTicket(attacker, ticket);
     assert.equal(update.mock.callCount(), 1);
+    assert.deepEqual(update.mock.calls[0].arguments[1].$inc, { tokenVersion: 1 }, 'other sessions signed out');
   });
 
   it('will not link a Google account already linked elsewhere, or with a forged ticket', async () => {
@@ -194,5 +217,33 @@ describe('the user as sent to a client', () => {
     assert.equal(json.hasPassword, true);
     for (const k of ['password', 'googleId', 'tokenVersion']) assert.equal(k in json, false, k);
     assert.equal(new User({ username: 'ana_2', email: 'b@x.co', password: null }).toJSON().hasPassword, false);
+  });
+});
+
+describe('Google re-authentication', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('only confirms the Google account already linked to this player', async () => {
+    const userId = id();
+    mock.method(User, 'findOne', () => query({ googleId: 'mine' }));
+    const out = await completeGoogle({ mode: 'reauth', userId }, { sub: 'mine', email: 'a@x.com' });
+    assert.ok(reauthValid(userId, out.reauth));
+    assert.equal(reauthValid(id(), out.reauth), false, 'not for anyone else');
+    await assert.rejects(completeGoogle({ mode: 'reauth', userId }, { sub: 'someone-else', email: 'b@x.com' }), /wrong-google/);
+  });
+});
+
+describe('the old leaderboard', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('leaves out players who opted out of leaderboards', async () => {
+    const { getLeaderboard } = await import('../src/services/user.service.js');
+    let filter;
+    mock.method(User, 'find', (f) => {
+      filter = f;
+      return { sort: () => ({ limit: () => ({ select: async () => [] }) }) };
+    });
+    await getLeaderboard();
+    assert.deepEqual(filter.leaderboardOptOut, { $ne: true });
   });
 });

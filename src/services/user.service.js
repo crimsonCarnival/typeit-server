@@ -69,7 +69,7 @@ export const updateProfile = async (userId, updates) => {
 export const getLeaderboard = async (limit = 10, sortBy = 'highScore') => {
   const sortField = sortBy === 'wpm' ? 'stats.bestWpm' : 'stats.highScore';
   
-  return await User.find({ status: 'active' })
+  return await User.find({ status: 'active', leaderboardOptOut: { $ne: true } })
     .sort({ [sortField]: -1 })
     .limit(limit)
     .select('username displayName avatar stats');

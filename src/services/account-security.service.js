@@ -3,6 +3,9 @@ import User from '../models/user.model.js';
 import { checkEmail, checkPassword } from '../utils/validate.js';
 import { USERNAME_PATTERN } from '../utils/public-identity.js';
 import { clearRankingsCache } from './ranking.service.js';
+import { generateToken } from './auth.service.js';
+import { reauthValid } from './google-auth.service.js';
+import { notify } from './notification.service.js';
 
 /** How often a player may change their username. */
 export const USERNAME_CHANGE_DAYS = 30;
@@ -26,14 +29,42 @@ const loadWithPassword = async (userId) => {
 
 const passwordMatches = async (user, password) => !!user.password && typeof password === 'string' && (await bcrypt.compare(password, user.password));
 
-/** Adds a password (Google-only accounts) or changes it (needs the current one). */
-export const setPassword = async (userId, { current, next }) => {
+/**
+ * A sign-in method changed: every other session is signed out (they carry the
+ * old token version), the player is told, and this session gets a fresh token.
+ * So someone using a stolen session can't quietly keep a way back in.
+ */
+const methodChanged = async (user, title, body) => {
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
+  await user.save();
+  await notify(user._id, { type: 'account', title, body: `${body} Other devices were signed out. If this wasn't you, secure your account now.`, link: '/account?tab=authentication' });
+  return generateToken(user);
+};
+
+/**
+ * Adds a password or changes it. Changing needs the current one; adding one
+ * to a Google-only account needs a fresh Google confirmation (`reauth`), since
+ * a session alone must not be enough to add a lasting way in.
+ * @returns {Promise<string>} a fresh session token
+ */
+export const setPassword = async (userId, { current, next, reauth }) => {
   const invalid = checkPassword(next);
   if (invalid) throw new AccountError(invalid);
   const user = await loadWithPassword(userId);
-  if (user.password && !(await passwordMatches(user, current))) throw new AccountError('Current password is wrong', 403);
+  if (user.password) {
+    if (!(await passwordMatches(user, current))) throw new AccountError('Current password is wrong', 403);
+  } else if (!reauthValid(userId, reauth)) {
+    throw new AccountError('Confirm with Google first', 403);
+  }
+  const adding = !user.password;
   user.password = await bcrypt.hash(next, 10);
-  await user.save();
+  return methodChanged(user, adding ? 'A password was added to your account' : 'Your password was changed', adding ? 'You can now sign in with a password.' : 'Your password is different now.');
+};
+
+/** Linking Google needs the account's password when it has one. */
+export const checkCanLinkGoogle = async (userId, password) => {
+  const user = await loadWithPassword(userId);
+  if (user.password && !(await passwordMatches(user, password))) throw new AccountError('Password is wrong', 403);
 };
 
 /** Changes the sign-in email. Needs the password, so an open session alone can't take the account. */
@@ -46,7 +77,7 @@ export const setEmail = async (userId, { password, email }) => {
   const normalized = email.trim().toLowerCase();
   if (await User.exists({ email: normalized, _id: { $ne: userId } })) throw new AccountError('Email already registered', 409);
   user.email = normalized;
-  await user.save();
+  return methodChanged(user, 'Your sign-in email was changed', `It is now ${normalized}.`);
 };
 
 /** Removes the Google link, only while a password remains to sign in with. */
@@ -54,7 +85,9 @@ export const unlinkGoogle = async (userId) => {
   const user = await loadWithPassword(userId);
   if (!user.googleId) throw new AccountError('Google is not linked');
   if (!user.password) throw new AccountError('Add a password first, or you could not sign in again');
-  await User.updateOne({ _id: userId }, { $unset: { googleId: 1 }, $set: { googleEmail: null } });
+  user.googleId = undefined;
+  user.googleEmail = null;
+  return methodChanged(user, 'Google sign-in was removed from your account', 'You sign in with your password now.');
 };
 
 /** Signs the account out everywhere: every token issued so far stops working. */
