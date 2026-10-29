@@ -1,10 +1,27 @@
 import Result from '../models/result.model.js';
-import { errorMessage } from '../utils/http.js';
+import { clampInt, errorMessage } from '../utils/http.js';
+import { RESULT_ROWS_LIMIT, getResultRows } from '../services/stats.service.js';
 
 /**
  * Stats Controller — authenticated user statistics endpoints.
  */
 const statsController = {
+  /**
+   * Every saved result of the signed-in player (newest RESULT_ROWS_LIMIT),
+   * oldest first, as compact rows. The dashboard filters, charts and tabulates
+   * them in the browser.
+   *
+   * GET /api/stats/results?limit
+   */
+  getResults: async (req, res) => {
+    try {
+      const rows = await getResultRows(req.user._id, clampInt(req.query.limit, RESULT_ROWS_LIMIT, 1, RESULT_ROWS_LIMIT));
+      res.json({ success: true, data: { results: rows, capped: rows.length >= RESULT_ROWS_LIMIT } });
+    } catch (error) {
+      res.status(500).json({ success: false, error: errorMessage(error) });
+    }
+  },
+
   /**
    * Returns the authenticated user's completed sessions as a summary list,
    * ordered chronologically (oldest first). Excludes the full PerformancePoint[]
