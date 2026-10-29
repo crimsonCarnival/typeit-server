@@ -25,11 +25,16 @@ const worstKeys = (keyErrors = []) => {
 /** The race itself: by id, or the latest race held under an invite code. */
 const findRace = (ref) => (isObjectId(ref) ? Race.findById(ref).lean() : Race.findOne({ code: String(ref).toUpperCase() }).sort({ finishedAt: -1 }).lean());
 
-/** Who may look: the racers, and anyone watching that room right now. */
+/**
+ * Who may look: the racers, and anyone watching that room right now, but only
+ * for the race the room just finished. Codes are reused (rematches, collisions),
+ * so a code alone never grants access to an older race.
+ */
 const mayView = (race, viewerId) => {
   const id = String(viewerId);
   if (race.players.some((p) => String(p.userId) === id)) return true;
-  return !!_rooms.get(race.code)?.spectators?.includes(id);
+  const room = _rooms.get(race.code);
+  return !!room?.spectators?.includes(id) && room.state === 'finished' && new Date(room.finishedAt).getTime() === new Date(race.finishedAt).getTime();
 };
 
 /**
@@ -42,7 +47,8 @@ const mayView = (race, viewerId) => {
 export const getRaceMistakes = async (ref, viewerId) => {
   const race = await findRace(ref);
   if (!race) return { error: 'Race not found', status: 404 };
-  if (!mayView(race, viewerId)) return { error: 'Only the racers can compare mistakes', status: 403 };
+  // Same answer as a missing race, so this can't be used to probe which races exist.
+  if (!mayView(race, viewerId)) return { error: 'Race not found', status: 404 };
 
   const resultIds = race.players.map((p) => p.resultId).filter(Boolean);
   const [results, users] = await Promise.all([
