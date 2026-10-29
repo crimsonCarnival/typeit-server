@@ -95,6 +95,12 @@ const userSchema = new Schema(
         type: Number,
         default: 0,
       },
+      // Tests whose first key was typed. gamesPlayed counts the finished
+      // ones, so a started-but-abandoned test only shows up here.
+      testsStarted: {
+        type: Number,
+        default: 0,
+      },
       afkTime: {
         type: Number,
         default: 0,
@@ -151,6 +157,12 @@ const userSchema = new Schema(
     timezone: {
       type: String,
       default: null,
+    },
+    // True once the player picked their zone: the client then stops overwriting
+    // it with whatever the browser reports.
+    timezoneManual: {
+      type: Boolean,
+      default: false,
     },
     // Display and typing preferences (config/settings.js); validated on write.
     settings: {

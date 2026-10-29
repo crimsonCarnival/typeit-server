@@ -27,7 +27,7 @@ export const getProfile = async (userId) => {
  * Updates user profile
  */
 export const updateProfile = async (userId, updates) => {
-  const allowedUpdates = ['username', 'displayName', 'avatar', 'bio', 'timezone'];
+  const allowedUpdates = ['username', 'displayName', 'avatar', 'bio', 'timezone', 'timezoneManual'];
   const filteredUpdates = {};
 
   for (const key of allowedUpdates) {

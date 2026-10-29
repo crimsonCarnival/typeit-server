@@ -79,19 +79,21 @@ const userController = {
 
   updateProfile: async (req, res) => {
     try {
-      const { username, displayName, avatar, bio, timezone } = req.body || {};
+      const { username, displayName, avatar, bio, timezone, timezoneManual } = req.body || {};
 
       const invalid = (username !== undefined ? checkUsername(username) : null)
         ?? checkOptionalString(displayName, 'Display name', 30)
         ?? checkOptionalString(bio, 'Bio', 160)
         ?? checkAvatar(avatar)
-        ?? checkTimezone(timezone);
+        ?? checkTimezone(timezone)
+        ?? (timezoneManual !== undefined && typeof timezoneManual !== 'boolean' ? 'Invalid timezone setting' : null);
       if (invalid) {
         return res.status(400).json({ success: false, error: invalid });
       }
 
       const updateData = { username, displayName, avatar, bio };
       if (timezone !== undefined) updateData.timezone = timezone;
+      if (timezoneManual !== undefined) updateData.timezoneManual = timezoneManual;
 
       const user = await updateProfile(req.userId, updateData);
 

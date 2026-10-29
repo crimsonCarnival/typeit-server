@@ -1,4 +1,5 @@
 import Session from '../models/session.model.js';
+import User from '../models/user.model.js';
 import { MAX_KEYSTROKES, TIMING_TOLERANCE_MS } from '../config/integrity.js';
 import { PROGRESS_MAX_KEYS_PER_BATCH } from '../config/gameplay.js';
 import { isKeystroke, liveStats, replayRun } from './run-engine.js';
@@ -72,6 +73,11 @@ export const appendKeys = async (run, { from, keys, elapsedMs, leadMs }, now = D
     if (!updated) {
       const fresh = await Session.findById(run._id).select('keyCount').lean();
       return { conflict: fresh?.keyCount ?? 0 };
+    }
+    // The first batch of a signed-in run is its start (the conflict check above
+    // makes a resent batch fail, so each run is counted once).
+    if (from === 0 && keys.length && run.userId) {
+      await User.updateOne({ _id: run.userId }, { $inc: { 'stats.testsStarted': 1 } }).catch(() => {});
     }
   } else if (keys.length) {
     run.keys.push(...keys);
