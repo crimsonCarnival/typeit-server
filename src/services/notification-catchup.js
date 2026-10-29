@@ -42,13 +42,13 @@ const AUDIT_ACTIONS = ['user.warn', 'user.role', 'user.ban', 'user.deactivate', 
 export const noticeForAudit = (entry) => {
   const why = entry.reason || '';
   switch (entry.action) {
-    case 'user.warn': return { title: 'You received a warning', body: why };
-    case 'user.role': return { title: `Your role is now ${entry.details?.to ?? 'different'}`, body: '' };
-    case 'user.ban': return { title: 'Your account was banned', body: why };
-    case 'user.deactivate': return { title: 'Your account was deactivated', body: why };
-    case 'user.reactivate': return { title: 'Your account was reactivated', body: why };
-    case 'user.permissions': return { title: 'Your permissions changed', body: 'An admin updated what you can do in the admin area.' };
-    case 'user.profile-reset': return { title: 'A moderator reset part of your profile', body: `${(entry.details?.fields ?? []).join(', ')}: ${why}` };
+    case 'user.warn': return { title: 'You received a warning', body: why, link: '/account' };
+    case 'user.role': return { title: `Your role is now ${entry.details?.to ?? 'different'}`, body: '', link: entry.details?.to === 'user' ? '/profile' : '/admin' };
+    case 'user.ban': return { title: 'Your account was banned', body: why, link: '/account' };
+    case 'user.deactivate': return { title: 'Your account was deactivated', body: why, link: '/account' };
+    case 'user.reactivate': return { title: 'Your account was reactivated', body: why, link: '/account' };
+    case 'user.permissions': return { title: 'Your permissions changed', body: 'An admin updated what you can do in the admin area.', link: '/admin' };
+    case 'user.profile-reset': return { title: 'A moderator reset part of your profile', body: `${(entry.details?.fields ?? []).join(', ')}: ${why}`, link: '/profile' };
     default: return null;
   }
 };
@@ -132,7 +132,7 @@ const pendingAudit = async (userId, since) => {
   const entries = await AuditLog.find({ targetId: userId, action: { $in: AUDIT_ACTIONS }, createdAt: { $gte: since } }).sort({ createdAt: -1 }).limit(CATCHUP_MAX_PER_SOURCE).lean();
   return entries.flatMap((e) => {
     const notice = noticeForAudit(e);
-    return notice ? [{ at: e.createdAt, type: 'account', ...notice, link: null, dedupeKey: `audit:${e._id}` }] : [];
+    return notice ? [{ at: e.createdAt, type: 'account', ...notice, dedupeKey: `audit:${e._id}` }] : [];
   });
 };
 

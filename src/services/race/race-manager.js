@@ -123,7 +123,7 @@ export const moderateRoom = (code, { action, userId }, now = Date.now()) => {
     (room.banned ??= []).includes(userId) || room.banned.push(userId);
     detach(userId, now);
     sendTo(userId, { type: 'kicked', code: room.code, name: room.name });
-    void notify(userId, { type: 'account', title: `You were removed from "${room.name}"`, body: 'A moderator removed you from that race.', dedupeKey: `kicked:${room.code}:${userId}` });
+    void notify(userId, { type: 'account', title: `You were removed from "${room.name}"`, body: 'A moderator removed you from that race.', link: '/race', dedupeKey: `kicked:${room.code}:${userId}` });
     return null;
   }
   if (action === 'mute' || action === 'unmute') {
@@ -241,7 +241,7 @@ const actions = {
     if (err) return error(user.userId, err);
     roomOf.delete(target);
     sendTo(target, { type: 'kicked', code: room.code, name: room.name });
-    void notify(target, { type: 'account', title: `You were removed from "${room.name}"`, body: "The host removed you, so you can't rejoin that race.", dedupeKey: `kicked:${room.code}:${target}` });
+    void notify(target, { type: 'account', title: `You were removed from "${room.name}"`, body: "The host removed you, so you can't rejoin that race.", link: '/race', dedupeKey: `kicked:${room.code}:${target}` });
     broadcast(room, now);
   },
 

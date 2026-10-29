@@ -150,6 +150,9 @@ describe('catch-up', () => {
     assert.equal(noticeForAudit({ action: 'user.warn', reason: 'spam' }).body, 'spam');
     assert.equal(noticeForAudit({ action: 'user.role', details: { to: 'moderator' } }).title, 'Your role is now moderator');
     assert.equal(noticeForAudit({ action: 'user.ban', reason: 'cheating' }).title, 'Your account was banned');
+    assert.equal(noticeForAudit({ action: 'user.warn' }).link, '/account');
+    assert.equal(noticeForAudit({ action: 'user.role', details: { to: 'user' } }).link, '/profile');
+    assert.equal(noticeForAudit({ action: 'user.role', details: { to: 'admin' } }).link, '/admin');
     assert.equal(noticeForAudit({ action: 'race.kick' }), null, 'live-only actions are not caught up');
   });
 

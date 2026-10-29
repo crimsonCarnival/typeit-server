@@ -101,7 +101,7 @@ export const updateUserRole = async (userId, role, adminId) => {
   const user = await User.findByIdAndUpdate(userId, { $set: { role } }, { new: true }).select('-password');
   if (target.role !== role) {
     const logId = await recordAudit(adminId, 'user.role', { targetId: userId, details: { from: target.role, to: role } });
-    await notify(userId, { type: 'account', title: `Your role is now ${role}`, body: target.role === 'user' || role === 'admin' ? 'You may have new tools in the admin area.' : '', link: role === 'user' ? null : '/admin', dedupeKey: auditKey(logId) });
+    await notify(userId, { type: 'account', title: `Your role is now ${role}`, body: target.role === 'user' || role === 'admin' ? 'You may have new tools in the admin area.' : '', link: role === 'user' ? '/profile' : '/admin', dedupeKey: auditKey(logId) });
   }
   return user;
 };
@@ -134,7 +134,7 @@ export const updateUserStatus = async (userId, status, reason = '', adminId) => 
   if (user.status !== status) {
     const logId = await recordAudit(adminId, `user.${status === 'active' ? 'reactivate' : status === 'banned' ? 'ban' : 'deactivate'}`, { targetId: userId, reason, details: { from: user.status, to: status } });
     const titles = { active: 'Your account was reactivated', banned: 'Your account was banned', deactivated: 'Your account was deactivated' };
-    await notify(userId, { type: 'account', title: titles[status], body: reason || '', dedupeKey: auditKey(logId) });
+    await notify(userId, { type: 'account', title: titles[status], body: reason || '', link: '/account', dedupeKey: auditKey(logId) });
   }
   return updated;
 };
@@ -188,7 +188,7 @@ export const warnUser = async (userId, reason, adminId) => {
   if (!user) return null;
   await guardTarget(user, adminId, 'warn');
   const logId = await recordAudit(adminId, 'user.warn', { targetId: userId, reason: why });
-  await notify(userId, { type: 'account', title: 'You received a warning', body: why, dedupeKey: auditKey(logId) });
+  await notify(userId, { type: 'account', title: 'You received a warning', body: why, link: '/account', dedupeKey: auditKey(logId) });
   return user;
 };
 
