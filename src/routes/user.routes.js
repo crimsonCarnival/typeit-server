@@ -14,6 +14,7 @@ router.get('/search', rateLimit({ windowMs: 60 * 1000, max: 60 }), userControlle
 
 // Protected fixed routes (require authentication)
 router.get('/profile', auth, userController.getProfile);
+router.get('/profile/outcomes', auth, userController.getOutcomes);
 router.patch('/profile', auth, rateLimit({ windowMs: 60 * 1000, max: 20, perUser: true }), userController.updateProfile);
 router.get('/settings', auth, userController.getSettings);
 router.patch('/settings', auth, rateLimit({ windowMs: 60 * 1000, max: 60, perUser: true }), userController.updateSettings);

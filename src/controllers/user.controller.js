@@ -13,8 +13,21 @@ import {
 import { asString, clampInt, errorMessage } from '../utils/http.js';
 import { checkAvatar, checkOptionalString, checkTimezone, checkUsername, parseSettingsPatch } from '../utils/validate.js';
 import User from '../models/user.model.js';
+import { getTestOutcomes } from '../services/test-outcomes.service.js';
 
 const userController = {
+  /**
+   * The signed-in player's started / abandoned / finished test counts
+   * GET /api/users/profile/outcomes
+   */
+  getOutcomes: async (req, res) => {
+    try {
+      res.json({ success: true, data: await getTestOutcomes(req.userId) });
+    } catch (error) {
+      res.status(500).json({ success: false, error: errorMessage(error) });
+    }
+  },
+
   /**
    * Get current user profile
    * GET /api/users/profile

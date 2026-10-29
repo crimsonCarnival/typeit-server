@@ -8,6 +8,7 @@ import WordList from '../models/word-list.model.js';
 import Session from '../models/session.model.js';
 import { USERNAME_PATTERN, publicHandle, publicName, staffRole } from '../utils/public-identity.js';
 import { levelInfo } from '../config/levels.js';
+import { getTestOutcomes } from './test-outcomes.service.js';
 import { deleteFollowsOf, isFollowing } from './follow.service.js';
 
 export { followUser, unfollowUser, getFollowers, getFollowing } from './follow.service.js';
@@ -176,6 +177,7 @@ export const getPublicProfile = async (userId, viewerId = null) => {
     createdAt: user.createdAt,
     followersCount: user.followersCount ?? 0,
     followingCount: user.followingCount ?? 0,
+    outcomes: await getTestOutcomes(user._id),
     isFollowing: viewerId && !isOwner ? await isFollowing(viewerId, user._id) : false,
     isOwner,
   };
