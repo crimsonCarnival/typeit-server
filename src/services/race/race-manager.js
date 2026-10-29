@@ -7,6 +7,7 @@ import { generateText, startRaceSession } from '../game.service.js';
 import { syncAchievements } from '../achievement.service.js';
 import { areMutual } from '../follow.service.js';
 import { notify } from '../notification.service.js';
+import { blockedBy, blockedByCached, eitherBlocked } from '../block.service.js';
 import { awardXp } from '../xp.service.js';
 import { XP_RACE_FINISH, XP_RACE_WIN } from '../../config/levels.js';
 import { formMatches } from './matchmaking.js';
@@ -201,13 +202,15 @@ const actions = {
     broadcast(room, now);
   },
 
-  join(user, { code }, now) {
+  async join(user, { code }, now) {
     if (tooManyFailedJoins(user.userId, now)) return error(user.userId, 'too-many-attempts');
     const room = typeof code === 'string' && rooms.get(code.trim().toUpperCase());
     if (!room) {
       failedJoins.get(user.userId).push(now);
       return error(user.userId, 'room-not-found');
     }
+    // A host who blocked this player: the room is simply not there for them.
+    if (room.hostId !== user.userId && (await blockedBy(room.hostId)).has(user.userId)) return error(user.userId, 'room-not-found');
     if (roomOf.get(user.userId) !== room.code) detach(user.userId, now);
     const err = joinRoom(room, user, now);
     if (err) return error(user.userId, err);
@@ -258,7 +261,7 @@ const actions = {
     const key = `${user.userId}|${target}`;
     if (Date.now() - (lastInvite.get(key) ?? 0) < RACE_INVITE_COOLDOWN_MS) return error(user.userId, 'invite-cooldown');
     if (!isOnline(target)) return error(user.userId, 'friend-offline');
-    if (!(await areFriends(user.userId, target))) return error(user.userId, 'not-friends');
+    if (!(await areFriends(user.userId, target)) || (await eitherBlocked(user.userId, target))) return error(user.userId, 'not-friends');
     lastInvite.set(key, Date.now());
     void notify(target, {
       type: 'race-invite',
@@ -356,7 +359,8 @@ function say(user, content, now) {
   const msg = { type: 'chat', from: { userId: user.userId, displayName: user.displayName }, ...content, at: now };
   const { type: _type, ...line } = msg;
   room.chat = [...(room.chat ?? []), line].slice(-CHAT_HISTORY_LIMIT);
-  for (const id of everyoneIn(room)) sendTo(id, msg);
+  // Players who blocked the sender don't get the line.
+  for (const id of everyoneIn(room)) if (!blockedByCached(id).has(user.userId)) sendTo(id, msg);
 }
 
 /** Lets someone who just joined, watched or reconnected catch up on the chat. */
@@ -416,6 +420,8 @@ export const handleMessage = async (user, msg, now = Date.now()) => {
 
 /** Registers a socket; returns false when the user already has too many open. */
 export const connect = (user, ws) => {
+  // Warm the block list so chat can be filtered without waiting.
+  void blockedBy(user.userId).catch(() => {});
   if (!sockets.has(user.userId)) sockets.set(user.userId, new Set());
   if (sockets.get(user.userId).size >= RACE_MAX_SOCKETS_PER_USER) return false;
   sockets.get(user.userId).add(ws);

@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import WebSocket from 'ws';
 import User from '../src/models/user.model.js';
+import { Block } from '../src/services/block.service.js';
 import { JWT_SECRET } from '../src/config/env.js';
 import {
   cancelCountdown,
@@ -298,6 +299,8 @@ describe('race socket', () => {
   const ids = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()];
 
   before(async () => {
+    // Nobody in these races has blocked anyone.
+    mock.method(Block, 'find', () => ({ select: () => ({ lean: async () => [] }) }));
     mock.method(User, 'findById', (id) => ({
       select: () => ({
         lean: async () => ({ _id: id, username: `user${String(id).slice(-3)}`, displayName: '', avatar: '', status: 'active' }),

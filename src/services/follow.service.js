@@ -3,6 +3,7 @@ import Follow from '../models/follow.model.js';
 import User from '../models/user.model.js';
 import { publicHandle, publicName, staffRole } from '../utils/public-identity.js';
 import { notify } from './notification.service.js';
+import { eitherBlocked } from './block.service.js';
 
 export const FOLLOW_LIST_LIMIT = 100;
 const LIST_FIELDS = 'username displayName avatar role stats.bestWpm';
@@ -45,7 +46,7 @@ export const followUser = async (followerId, targetId) => {
   }
 
   const target = await User.exists({ _id: targetId, status: 'active' });
-  if (!target) {
+  if (!target || (await eitherBlocked(followerId, targetId))) {
     throw new Error('User not found');
   }
 

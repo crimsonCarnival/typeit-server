@@ -4,16 +4,23 @@ import mongoose from 'mongoose';
 import Follow from '../src/models/follow.model.js';
 import User from '../src/models/user.model.js';
 import Notification from '../src/models/notification.model.js';
+import { Block, _clearBlockCache } from '../src/services/block.service.js';
 import { areMutual, deleteFollowsOf, followUser, getMutualIds, unfollowUser } from '../src/services/follow.service.js';
 
 const id = () => new mongoose.Types.ObjectId();
 const leanOf = (value) => ({ select() { return this; }, lean: async () => value });
 
 describe('follow service', () => {
-  afterEach(() => mock.restoreAll());
+  afterEach(() => {
+    mock.restoreAll();
+    _clearBlockCache();
+  });
+  // Nobody has blocked anybody unless a test says so.
+  const noBlocks = () => mock.method(Block, 'find', () => ({ select: () => ({ lean: async () => [] }) }));
 
   it('creates one edge and bumps both counters', async () => {
     const [a, b] = [id(), id()];
+    noBlocks();
     mock.method(User, 'exists', async () => ({ _id: b }));
     const create = mock.method(Follow, 'create', async () => ({}));
     const inc = mock.method(User, 'updateOne', async () => ({}));
@@ -28,6 +35,7 @@ describe('follow service', () => {
   });
 
   it('does not double count a repeated follow', async () => {
+    noBlocks();
     mock.method(User, 'exists', async () => ({}));
     mock.method(Follow, 'create', async () => { const e = new Error('dup'); e.code = 11000; throw e; });
     const inc = mock.method(User, 'updateOne', async () => ({}));
