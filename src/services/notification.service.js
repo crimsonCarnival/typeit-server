@@ -10,7 +10,7 @@ import { gameEvents } from '../events/game-events.js';
  * it: notify() swallows its own errors.
  */
 
-// What each type belongs to. Players can mute the four optional categories;
+// What each type belongs to. Players can mute the optional categories;
 // account notices (warnings, bans, role changes, removal from a room) always arrive.
 export const CATEGORY_OF = Object.freeze({
   follow: 'social',
@@ -21,9 +21,10 @@ export const CATEGORY_OF = Object.freeze({
   'daily-expiring': 'daily',
   'daily-rank': 'daily',
   account: 'account',
+  changelog: 'releases',
 });
 
-export const OPTIONAL_CATEGORIES = Object.freeze(['social', 'achievements', 'races', 'daily']);
+export const OPTIONAL_CATEGORIES = Object.freeze(['social', 'achievements', 'races', 'daily', 'releases']);
 
 export const isMuted = (prefs, type) => {
   const category = CATEGORY_OF[type];

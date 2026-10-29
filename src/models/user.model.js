@@ -84,6 +84,7 @@ const userSchema = new Schema(
       achievements: Boolean,
       races: Boolean,
       daily: Boolean,
+      releases: Boolean,
     },
     status: {
       type: String,

@@ -21,7 +21,8 @@ const id = () => new mongoose.Types.ObjectId();
 const leanOf = (value) => ({ select() { return this; }, lean: async () => value });
 
 describe('notification preferences', () => {
-  it('only the four optional categories can be muted', () => {
+  it('only the optional categories can be muted', () => {
+    assert.equal(isMuted({ releases: false }, 'changelog'), true);
     assert.equal(isMuted({ social: false }, 'follow'), true);
     assert.equal(isMuted({ daily: false }, 'daily-expiring'), true);
     assert.equal(isMuted({ daily: false }, 'follow'), false);
@@ -30,7 +31,7 @@ describe('notification preferences', () => {
   });
 
   it('every type has a category', () => {
-    for (const type of ['follow', 'race-invite', 'achievement', 'level-up', 'race-result', 'daily-expiring', 'daily-rank', 'account']) assert.ok(CATEGORY_OF[type], type);
+    for (const type of ['follow', 'race-invite', 'achievement', 'level-up', 'race-result', 'daily-expiring', 'daily-rank', 'account', 'changelog']) assert.ok(CATEGORY_OF[type], type);
   });
 });
 

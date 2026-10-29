@@ -1,6 +1,8 @@
 import mongoose, { Schema } from 'mongoose';
 import { GITHUB_CHANGELOG_REPOS, GITHUB_TOKEN } from '../config/env.js';
 import { buildChangelog } from './changelog-lib.js';
+import User from '../models/user.model.js';
+import { notifyMany } from './notification.service.js';
 
 /*
  * The release notes, compiled from the conventional commit messages of the
@@ -43,13 +45,39 @@ export const fetchRepoCommits = async (fullName, fetchImpl = fetch) => {
   return commits;
 };
 
-/** Reads every configured repo, builds the notes and stores them. */
+/** Tells every active player who has not muted releases about a new version; once per version. */
+export const notifyNewRelease = async (version) => {
+  const players = await User.find({ status: 'active', 'notificationPrefs.releases': { $ne: false } }).select('_id').lean();
+  return notifyMany(players.map((p) => p._id), {
+    type: 'changelog',
+    title: `${version} is out — check what's new`,
+    body: 'Open the release notes from the footer to see the latest changes.',
+    dedupeKey: `changelog:${version}`,
+  });
+};
+
+/**
+ * Reads every configured repo, builds the notes and stores them. When the
+ * latest version changed, players are notified, except on the very first
+ * compile, when every past release would look new.
+ */
 export const compileChangelog = async (now = new Date(), fetchImpl = fetch) => {
   if (!GITHUB_CHANGELOG_REPOS.length) throw new Error('No repos configured (GITHUB_CHANGELOG_REPOS)');
+  const prev = await Changelog.findById('current').select('releases').lean();
+  const prevVersion = prev?.releases?.[0]?.version ?? null;
   const commits = (await Promise.all(GITHUB_CHANGELOG_REPOS.map((r) => fetchRepoCommits(r, fetchImpl)))).flat();
   const releases = buildChangelog(commits);
+  const newVersion = releases[0]?.version ?? null;
   await Changelog.updateOne({ _id: 'current' }, { $set: { releases, compiledAt: now, commits: commits.length } }, { upsert: true });
-  return { releases: releases.length, commits: commits.length, compiledAt: now };
+  let notified = 0;
+  if (prevVersion && newVersion && newVersion !== prevVersion) {
+    // The notes are stored already; a failed notice must not fail the compile.
+    notified = await notifyNewRelease(newVersion).catch((err) => {
+      console.error('[changelog] release notice failed:', err?.message || err);
+      return 0;
+    });
+  }
+  return { releases: releases.length, commits: commits.length, compiledAt: now, prevVersion, newVersion, notified };
 };
 
 export const getChangelog = async () => {
