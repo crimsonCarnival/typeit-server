@@ -235,8 +235,10 @@ const announceUnlocks = async (userId, ids) => {
 
 /** Records today's play on the player's streak. */
 export const recordPlayDay = async (userId, now = new Date()) => {
-  const user = await User.findById(userId).select('stats.streak').lean();
-  const next = nextStreak(user?.stats?.streak, dateKey(now));
+  const user = await User.findById(userId).select('stats.streak streakHourOffset').lean();
+  // The player's chosen offset moves where their day starts (UTC by default).
+  const shifted = new Date(now.getTime() + (user?.streakHourOffset || 0) * 60 * 60 * 1000);
+  const next = nextStreak(user?.stats?.streak, dateKey(shifted));
   await User.updateOne({ _id: userId }, { $set: { 'stats.streak': next } });
 };
 

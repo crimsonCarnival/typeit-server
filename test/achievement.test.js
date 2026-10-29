@@ -5,6 +5,7 @@ import Result from '../src/models/result.model.js';
 import User from '../src/models/user.model.js';
 import DailyAttempt from '../src/models/daily-attempt.model.js';
 import UserAchievement from '../src/models/user-achievement.model.js';
+import Notification from '../src/models/notification.model.js';
 import LessonProgress from '../src/models/lesson-progress.model.js';
 import Race from '../src/models/race.model.js';
 import {
@@ -149,6 +150,9 @@ describe('syncAchievements', () => {
     mock.method(Result, 'aggregate', async () => [{ runs: 1, bestWpm: 55, maxElapsed: 30 }]);
     mock.method(DailyAttempt, 'countDocuments', async () => 0);
     mock.method(User, 'findById', () => ({ select: () => ({ lean: async () => ({ stats: {} }) }) }));
+    // Unlocks award XP and send notifications: neither is what this test checks.
+    mock.method(User, 'findOneAndUpdate', () => ({ select: () => ({ lean: async () => ({ stats: { xp: 0 } }) }) }));
+    mock.method(Notification, 'updateOne', async () => ({ upsertedCount: 0 }));
     mock.method(LessonProgress, 'find', () => ({ select: () => ({ lean: async () => [] }) }));
     mockHistory();
 

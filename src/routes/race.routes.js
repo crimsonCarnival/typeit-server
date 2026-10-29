@@ -39,7 +39,7 @@ router.get('/friends', auth, async (req, res) => {
  */
 router.get('/leaderboard', async (req, res) => {
   try {
-    const users = await User.find({ status: 'active', 'stats.racesRated': { $gt: 0 } })
+    const users = await User.find({ status: 'active', leaderboardOptOut: { $ne: true }, 'stats.racesRated': { $gt: 0 } })
       .sort({ 'stats.raceRating': -1, 'stats.racesRated': -1 })
       .limit(50)
       .select('username displayName avatar stats.raceRating stats.racesRated stats.raceWins')

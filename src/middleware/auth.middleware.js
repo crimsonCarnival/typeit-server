@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/user.model.js';
 import { JWT_SECRET } from '../config/env.js';
-import { JWT_VERIFY_OPTIONS } from '../services/auth.service.js';
+import { JWT_VERIFY_OPTIONS, tokenIsCurrent } from '../services/auth.service.js';
 import { errorMessage } from '../utils/http.js';
 import { hasPermission } from '../config/permissions.js';
 
@@ -24,10 +24,10 @@ export const auth = async (req, res, next) => {
     const decoded = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
     const user = await User.findById(decoded.userId).select('-password');
 
-    if (!user) {
+    if (!user || !tokenIsCurrent(decoded, user)) {
       return res.status(401).json({
         success: false,
-        error: 'User not found',
+        error: user ? 'Session expired' : 'User not found',
       });
     }
 
@@ -124,7 +124,7 @@ export const optionalAuth = async (req, res, next) => {
       const decoded = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
       const user = await User.findById(decoded.userId).select('-password');
 
-      if (user && user.status === 'active') {
+      if (user && user.status === 'active' && tokenIsCurrent(decoded, user)) {
         req.user = user;
         req.userId = user._id;
       }

@@ -20,6 +20,27 @@ if (!jwtSecret) {
 }
 export const JWT_SECRET = jwtSecret;
 
+// Google sign-in. All three must be set for it to be offered. The redirect
+// URI is this server's callback as registered in the Google console, e.g.
+// https://example.com/api/auth/google/callback. CLIENT_URL is where the browser
+// goes back to afterwards.
+export const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+export const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+export const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || '';
+export const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:4200';
+
+// Release notes are compiled from these GitHub repos ("owner/name", comma-separated).
+// The token is optional for public repos; for private ones use a fine-grained
+// token with read-only "Contents" access to just these repos.
+export const GITHUB_CHANGELOG_REPOS = (process.env.GITHUB_CHANGELOG_REPOS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => /^[\w.-]+\/[\w.-]+$/.test(s));
+export const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
+
+// Public contact address shown on the About page (empty hides the contact options).
+export const CONTACT_EMAIL = (process.env.CONTACT_EMAIL || '').trim();
+
 // Accounts that hold a role because the server's settings say so, not because
 // someone granted it in the app (comma-separated).
 //   FOUNDER_USER_IDS / FOUNDER_USERNAMES  the top rank: can't be changed, banned or deleted through the app

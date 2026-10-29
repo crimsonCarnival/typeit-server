@@ -3,6 +3,7 @@ import {
   updateProfile,
   getLeaderboard,
   deleteAccount,
+  resetAccount,
   searchUsers,
   getPublicProfile,
   followUser,
@@ -14,6 +15,14 @@ import { asString, clampInt, errorMessage } from '../utils/http.js';
 import { checkAvatar, checkOptionalString, checkTimezone, checkUsername, parseSettingsPatch } from '../utils/validate.js';
 import User from '../models/user.model.js';
 import { getTestOutcomes } from '../services/test-outcomes.service.js';
+import { getProfileOverview } from '../services/stats.service.js';
+import { AccountError, changeUsername } from '../services/account-security.service.js';
+
+/** Whether the request names the signed-in player's own username, case-sensitively. */
+const confirmedBy = async (req) => {
+  const user = await User.findById(req.userId).select('username').lean();
+  return !!user && typeof req.body?.confirm === 'string' && req.body.confirm === user.username;
+};
 
 const userController = {
   /**
@@ -104,7 +113,10 @@ const userController = {
         return res.status(400).json({ success: false, error: invalid });
       }
 
-      const updateData = { username, displayName, avatar, bio };
+      // A new username is limited to once every USERNAME_CHANGE_DAYS days.
+      const current = username !== undefined ? await User.findById(req.userId).select('username').lean() : null;
+      if (current && username !== current.username) await changeUsername(req.userId, username);
+      const updateData = { displayName, avatar, bio };
       if (timezone !== undefined) updateData.timezone = timezone;
       if (timezoneManual !== undefined) updateData.timezoneManual = timezoneManual;
 
@@ -122,6 +134,7 @@ const userController = {
         data: user,
       });
     } catch (error) {
+      if (error instanceof AccountError) return res.status(error.status).json({ success: false, error: error.message });
       const status = error.message.includes('taken') ? 409 : 500;
       res.status(status).json({
         success: false,
@@ -158,6 +171,8 @@ const userController = {
    */
   deleteAccount: async (req, res) => {
     try {
+      // Typing the username is the guard against a stray request or a mis-click.
+      if (!(await confirmedBy(req))) return res.status(400).json({ success: false, error: 'Type your username to confirm' });
       const deleted = await deleteAccount(req.userId);
 
       res.json({
@@ -169,6 +184,34 @@ const userController = {
         success: false,
         error: errorMessage(error),
       });
+    }
+  },
+
+  /**
+   * Wipes the signed-in player's progress, keeping the account
+   * POST /api/users/account/reset  { confirm: <username> }
+   */
+  resetAccount: async (req, res) => {
+    try {
+      if (!(await confirmedBy(req))) return res.status(400).json({ success: false, error: 'Type your username to confirm' });
+      res.json({ success: true, data: { reset: await resetAccount(req.userId) } });
+    } catch (error) {
+      res.status(500).json({ success: false, error: errorMessage(error) });
+    }
+  },
+
+  /**
+   * Totals, personal bests and the activity graph of a player (public)
+   * GET /api/users/:userId/overview?year=
+   */
+  getOverview: async (req, res) => {
+    try {
+      const year = req.query.year === undefined ? null : Number(req.query.year);
+      const user = await User.findOne({ _id: req.params.userId, status: 'active' }).select('_id').lean();
+      if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+      res.json({ success: true, data: await getProfileOverview(user._id, { year: Number.isInteger(year) ? year : null }) });
+    } catch (error) {
+      res.status(500).json({ success: false, error: errorMessage(error) });
     }
   },
 

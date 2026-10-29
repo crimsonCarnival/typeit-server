@@ -11,6 +11,7 @@ import WordList from '../src/models/word-list.model.js';
 import Follow from '../src/models/follow.model.js';
 import DigraphReview from '../src/models/digraph-review.model.js';
 import { deleteAccount } from '../src/services/user.service.js';
+import { Block } from '../src/services/block.service.js';
 
 describe('deleteAccount', () => {
   afterEach(() => mock.restoreAll());
@@ -19,12 +20,14 @@ describe('deleteAccount', () => {
     const userId = new mongoose.Types.ObjectId();
     mock.method(User, 'findByIdAndDelete', async () => ({ _id: userId }));
     const followFind = mock.method(Follow, 'find', () => ({ lean: async () => [] }));
+    const blocks = mock.method(Block, 'deleteMany', async () => ({}));
     const models = { Session, Result, DailyAttempt, UserAchievement, LessonProgress, WordList, DigraphReview };
     const calls = Object.fromEntries(
       Object.entries(models).map(([name, model]) => [name, mock.method(model, 'deleteMany', async () => ({}))])
     );
 
     assert.equal(await deleteAccount(userId), true);
+    assert.deepEqual(blocks.mock.calls[0].arguments[0], { $or: [{ blocker: userId }, { blocked: userId }] }, 'blocks made and received');
     for (const [name, call] of Object.entries(calls)) {
       assert.equal(call.mock.callCount(), 1, name);
       assert.deepEqual(call.mock.calls[0].arguments[0], { userId }, name);

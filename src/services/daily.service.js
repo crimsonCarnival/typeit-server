@@ -98,7 +98,7 @@ export const getDailyOverview = async (userId, now = new Date()) => {
 
   const [rankedToday, playersToday, mine, pastBest] = await Promise.all([
     DailyAttempt.find({ date, ranked: true })
-      .populate('userId', 'username displayName avatar role status')
+      .populate('userId', 'username displayName avatar role status leaderboardOptOut')
       .lean(),
     DailyAttempt.countDocuments({ date, finishedAt: { $ne: null } }),
     userId ? DailyAttempt.find({ userId, date: { $in: [date, ...pastDates] } }).lean() : [],
@@ -111,11 +111,11 @@ export const getDailyOverview = async (userId, now = new Date()) => {
 
   const leaders = rankEntries(
     rankedToday
-      .filter((a) => a.userId && a.userId.status === 'active')
+      .filter((a) => a.userId && a.userId.status === 'active' && !a.userId.leaderboardOptOut)
       .map((a) => ({ ...publicUser(a.userId), wpm: a.wpm, accuracy: a.accuracy, resultId: a.resultId ? a.resultId.toString() : null, achievedAt: a.finishedAt }))
   ).map(({ achievedAt, ...entry }) => entry);
 
-  const winners = await User.find({ _id: { $in: pastBest.map((b) => b.userId) }, status: 'active' })
+  const winners = await User.find({ _id: { $in: pastBest.map((b) => b.userId) }, status: 'active', leaderboardOptOut: { $ne: true } })
     .select('username displayName avatar role')
     .lean();
   const winnerById = new Map(winners.map((u) => [u._id.toString(), publicUser(u)]));
@@ -171,7 +171,7 @@ export const getDailyDay = async (userId, date, now = new Date()) => {
   if (!challenge) return { error: 'No challenge on that day', status: 404 };
 
   const [ranked, started, finished, mine] = await Promise.all([
-    DailyAttempt.find({ date, ranked: true }).populate('userId', 'username displayName avatar role status').lean(),
+    DailyAttempt.find({ date, ranked: true }).populate('userId', 'username displayName avatar role status leaderboardOptOut').lean(),
     DailyAttempt.countDocuments({ date }),
     DailyAttempt.countDocuments({ date, finishedAt: { $ne: null } }),
     userId ? DailyAttempt.findOne({ userId, date }).lean() : null,
@@ -179,7 +179,7 @@ export const getDailyDay = async (userId, date, now = new Date()) => {
 
   const entries = rankEntries(
     ranked
-      .filter((a) => a.userId && a.userId.status === 'active')
+      .filter((a) => a.userId && a.userId.status === 'active' && !a.userId.leaderboardOptOut)
       .map((a) => ({ ...publicUser(a.userId), wpm: a.wpm, accuracy: a.accuracy, resultId: a.resultId ? a.resultId.toString() : null, achievedAt: a.finishedAt }))
   ).map(({ achievedAt, ...entry }) => entry);
 

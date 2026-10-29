@@ -1,3 +1,4 @@
+import User from '../models/user.model.js';
 import { register, login, verifyToken } from '../services/auth.service.js';
 import { checkEmail, checkOptionalString, checkPassword, checkUsername } from '../utils/validate.js';
 import { errorMessage } from '../utils/http.js';
@@ -19,6 +20,12 @@ export const toPublicUser = (user) => ({
   level: levelInfo(user.stats?.xp),
   timezone: user.timezone,
   timezoneManual: !!user.timezoneManual,
+  hasPassword: !!user.password,
+  googleEmail: user.googleEmail || null,
+  leaderboardOptOut: !!user.leaderboardOptOut,
+  streakHourOffset: user.streakHourOffset || 0,
+  streakOffsetSet: !!user.streakOffsetSetAt,
+  usernameChangedAt: user.usernameChangedAt || null,
   stats: user.stats,
   settings: user.settings || {},
   followersCount: user.followersCount ?? 0,
@@ -107,7 +114,8 @@ const authController = {
       res.json({
         success: true,
         data: {
-          user: toPublicUser(req.user),
+          // Reloaded: the request's copy has no password field, so it can't tell whether one exists.
+          user: toPublicUser(await User.findById(req.userId)),
         },
       });
     } catch (error) {

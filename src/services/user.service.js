@@ -10,6 +10,8 @@ import { USERNAME_PATTERN, publicHandle, publicName, staffRole } from '../utils/
 import { levelInfo } from '../config/levels.js';
 import { getTestOutcomes } from './test-outcomes.service.js';
 import { deleteFollowsOf, isFollowing } from './follow.service.js';
+import Notification from '../models/notification.model.js';
+import { blockedBy, deleteBlocksOf } from './block.service.js';
 
 export { followUser, unfollowUser, getFollowers, getFollowing } from './follow.service.js';
 
@@ -21,8 +23,9 @@ const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /**
  * Gets user profile by ID
  */
+/** The signed-in player's own account. The password is loaded only so toJSON can say whether one exists. */
 export const getProfile = async (userId) => {
-  return await User.findById(userId).select('-password');
+  return await User.findById(userId);
 };
 
 /**
@@ -75,6 +78,28 @@ export const getLeaderboard = async (limit = 10, sortBy = 'highScore') => {
 /**
  * Deletes user account and their associated sessions/results.
  */
+/**
+ * Puts the account back to a blank state: every run, badge, streak, lesson,
+ * daily attempt, level and rating goes. Who you are (name, email, avatar,
+ * follows, word lists, settings) stays. Irreversible.
+ */
+export const resetAccount = async (userId) => {
+  const user = await User.findById(userId).select('_id');
+  if (!user) return false;
+  await Promise.allSettled([
+    Session.deleteMany({ userId }),
+    Result.deleteMany({ userId }),
+    DailyAttempt.deleteMany({ userId }),
+    UserAchievement.deleteMany({ userId }),
+    LessonProgress.deleteMany({ userId }),
+    DigraphReview.deleteMany({ userId }),
+    Notification.deleteMany({ userId }),
+  ]);
+  // Unsetting the stats brings every counter back to its default.
+  await User.updateOne({ _id: userId }, { $unset: { stats: 1 }, $set: { lastSession: null, lastSessionAt: null, notificationsSyncedAt: null } });
+  return true;
+};
+
 export const deleteAccount = async (userId) => {
   const result = await User.findByIdAndDelete(userId);
   if (!result) return false;
@@ -90,6 +115,7 @@ export const deleteAccount = async (userId) => {
     WordList.deleteMany({ userId }),
     DigraphReview.deleteMany({ userId }),
     deleteFollowsOf(userId),
+    deleteBlocksOf(userId),
   ]);
 
   return true;
@@ -179,6 +205,7 @@ export const getPublicProfile = async (userId, viewerId = null) => {
     followingCount: user.followingCount ?? 0,
     outcomes: await getTestOutcomes(user._id),
     isFollowing: viewerId && !isOwner ? await isFollowing(viewerId, user._id) : false,
+    isBlocked: viewerId && !isOwner ? (await blockedBy(viewerId)).has(String(user._id)) : false,
     isOwner,
   };
 };

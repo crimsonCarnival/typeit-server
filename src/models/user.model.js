@@ -45,11 +45,24 @@ const userSchema = new Schema(
       lowercase: true,
       trim: true,
     },
+    // Null for accounts made with Google that never set one.
     password: {
       type: String,
-      required: true,
-      minlength: 6,
+      default: null,
     },
+    googleId: { type: String, default: undefined },
+    googleEmail: { type: String, default: null },
+    // Bumped by "revoke all sessions": tokens carry the version they were made with.
+    tokenVersion: { type: Number, default: 0 },
+    // Username changes are limited (see USERNAME_CHANGE_DAYS).
+    usernameChangedAt: { type: Date, default: null },
+    // Hours added to UTC when deciding which day a run counts for a streak; set once.
+    streakHourOffset: { type: Number, default: 0 },
+    streakOffsetSetAt: { type: Date, default: null },
+    // Opted out of every leaderboard, for good.
+    leaderboardOptOut: { type: Boolean, default: false },
+    // Personal bests only count results after this moment.
+    pbResetAt: { type: Date, default: null },
     avatar: {
       type: String,
       default: '',
@@ -218,6 +231,7 @@ userSchema.index({ 'stats.highScore': -1 });
 userSchema.index({ 'stats.bestWpm': -1 });
 userSchema.index({ 'stats.raceRating': -1 });
 userSchema.index({ role: 1 });
+userSchema.index({ googleId: 1 }, { unique: true, sparse: true });
 userSchema.index({ status: 1 });
 
 // Every response that sends a user document also says what that user may do, so
@@ -226,6 +240,11 @@ userSchema.set('toJSON', {
   transform: (doc, ret) => {
     ret.permissions = permissionsFor(doc);
     ret.level = levelInfo(doc.stats?.xp);
+    // Which sign-in methods the account has; the hash and internals never leave the server.
+    if (ret.password !== undefined) ret.hasPassword = !!ret.password;
+    delete ret.password;
+    delete ret.googleId;
+    delete ret.tokenVersion;
     return ret;
   },
 });

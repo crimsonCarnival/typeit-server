@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import { WebSocketServer } from 'ws';
 import User from '../models/user.model.js';
 import { JWT_SECRET } from '../config/env.js';
-import { JWT_VERIFY_OPTIONS } from '../services/auth.service.js';
+import { JWT_VERIFY_OPTIONS, tokenIsCurrent } from '../services/auth.service.js';
 import {
   RACE_AUTH_TIMEOUT_MS,
   RACE_MAX_MESSAGE_BYTES,
@@ -68,9 +68,9 @@ const validShape = (msg) => {
 };
 
 const authenticate = async (token) => {
-  const { userId } = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
-  const user = await User.findById(userId).select('username displayName avatar role status stats.raceRating').lean();
-  if (!user || user.status !== 'active') throw new Error('inactive');
+  const decoded = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
+  const user = await User.findById(decoded.userId).select('username displayName avatar role status stats.raceRating tokenVersion').lean();
+  if (!user || user.status !== 'active' || !tokenIsCurrent(decoded, user)) throw new Error('inactive');
   return {
     userId: user._id.toString(),
     username: publicHandle(user),

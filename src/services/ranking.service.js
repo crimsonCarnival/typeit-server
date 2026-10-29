@@ -73,7 +73,7 @@ const loadBoard = async ({ period, mode, time, modifiers }, now) => {
         foreignField: '_id',
         as: 'user',
         pipeline: [
-          { $match: { status: 'active' } },
+          { $match: { status: 'active', leaderboardOptOut: { $ne: true } } },
           { $project: { username: 1, displayName: 1, avatar: 1, role: 1, timezone: 1, 'stats.raceWins': 1 } },
         ],
       },

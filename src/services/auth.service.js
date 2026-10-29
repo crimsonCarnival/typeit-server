@@ -8,11 +8,14 @@ import { USERNAME_PATTERN } from '../utils/public-identity.js';
 export const JWT_VERIFY_OPTIONS = Object.freeze({ algorithms: ['HS256'] });
 
 /**
- * Generates a JWT token for a user
+ * A session token for a user. It carries the account's token version, so
+ * bumping the version (revoke all sessions) invalidates every older token.
  */
-const generateToken = (userId) => {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN, algorithm: 'HS256' });
-};
+export const generateToken = (user) =>
+  jwt.sign({ userId: String(user._id), tv: user.tokenVersion || 0 }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN, algorithm: 'HS256' });
+
+/** Whether a decoded token is still valid for this user (not revoked). */
+export const tokenIsCurrent = (decoded, user) => (decoded?.tv || 0) === (user?.tokenVersion || 0);
 
 /**
  * Registers a new user
@@ -48,7 +51,7 @@ export const register = async (username, email, password, displayName) => {
 
   await user.save();
 
-  const token = generateToken(user._id);
+  const token = generateToken(user);
 
   return {
     user: {
@@ -82,8 +85,9 @@ export const login = async (identifier, password) => {
     throw new Error('Invalid credentials');
   }
 
-  // Password first: account status is only revealed to its owner.
-  const isMatch = await bcrypt.compare(password, user.password);
+  // Password first: account status is only revealed to its owner. Accounts
+  // made with Google have no password and can only sign in with Google.
+  const isMatch = !!user.password && (await bcrypt.compare(password, user.password));
 
   if (!isMatch) {
     throw new Error('Invalid credentials');
@@ -97,7 +101,7 @@ export const login = async (identifier, password) => {
     throw new Error('Account is deactivated');
   }
 
-  const token = generateToken(user._id);
+  const token = generateToken(user);
 
   return {
     user: {
@@ -121,9 +125,10 @@ export const login = async (identifier, password) => {
  */
 export const verifyToken = async (token) => {
   const decoded = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
-  const user = await User.findById(decoded.userId).select('-password');
+  // Full document: the caller turns it into the public shape (toPublicUser), which says whether a password exists but never sends it.
+  const user = await User.findById(decoded.userId);
 
-  if (!user) {
+  if (!user || !tokenIsCurrent(decoded, user)) {
     throw new Error('User not found');
   }
 
