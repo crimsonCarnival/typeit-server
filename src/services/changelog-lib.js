@@ -115,6 +115,7 @@ export const buildChangelog = (commits) => {
       pr: parsed.pr,
       hash: String(commit.hash).slice(0, 8),
       repo: commit.repo ?? null,
+      day: when.toISOString().slice(0, 10),
     });
   }
   return [...releases.values()].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
