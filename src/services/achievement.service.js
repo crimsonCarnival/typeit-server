@@ -18,6 +18,8 @@ import {
 } from '../config/achievements.js';
 import { dateKey } from './daily.service.js';
 import { notify } from './notification.service.js';
+import { awardXp } from './xp.service.js';
+import { XP_BY_RARITY } from '../config/levels.js';
 import {
   comebackProgress,
   countBreakthroughs,
@@ -214,6 +216,8 @@ export const maskHidden = (card, hint, index) => ({
 const announceUnlocks = async (userId, ids) => {
   if (!ids.length) return;
   const named = ids.map((id) => ACHIEVEMENTS.find((a) => a.id === id)).filter(Boolean);
+  // Experience for each badge, by rarity. Unlocks are insert-only, so each is rewarded once.
+  await awardXp(userId, named.reduce((sum, a) => sum + (XP_BY_RARITY[a.rarity] ?? 0), 0));
   if (named.length > 3) {
     await notify(userId, {
       type: 'achievement',

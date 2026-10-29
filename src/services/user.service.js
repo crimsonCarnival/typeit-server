@@ -6,7 +6,8 @@ import LessonProgress from '../models/lesson-progress.model.js';
 import DigraphReview from '../models/digraph-review.model.js';
 import WordList from '../models/word-list.model.js';
 import Session from '../models/session.model.js';
-import { USERNAME_PATTERN, publicHandle, publicName } from '../utils/public-identity.js';
+import { USERNAME_PATTERN, publicHandle, publicName, staffRole } from '../utils/public-identity.js';
+import { levelInfo } from '../config/levels.js';
 import { deleteFollowsOf, isFollowing } from './follow.service.js';
 
 export { followUser, unfollowUser, getFollowers, getFollowing } from './follow.service.js';
@@ -115,7 +116,7 @@ export const searchUsers = async (query, limit = 20) => {
   })
     // Fetch a few extra so the closest matches can be put first.
     .limit(limit * 3)
-    .select('username displayName avatar stats.bestWpm stats.gamesPlayed followersCount')
+    .select('username displayName avatar role stats.bestWpm stats.gamesPlayed stats.xp followersCount')
     .lean();
 
   return rankSearchResults(users, q).slice(0, limit).map((u) => ({
@@ -123,6 +124,8 @@ export const searchUsers = async (query, limit = 20) => {
     username: publicHandle(u),
     displayName: publicName(u),
     avatar: u.avatar || '',
+    role: staffRole(u),
+    level: levelInfo(u.stats?.xp).level,
     bestWpm: u.stats?.bestWpm || 0,
     gamesPlayed: u.stats?.gamesPlayed || 0,
     followersCount: u.followersCount || 0,
@@ -156,7 +159,7 @@ export const getPublicProfile = async (userId, viewerId = null) => {
   const user = await User.findOne({
     _id: userId,
     status: 'active'
-  }).select('displayName username avatar bio stats createdAt followersCount followingCount');
+  }).select('displayName username avatar role bio stats createdAt followersCount followingCount');
 
   if (!user) return null;
   const isOwner = viewerId ? String(viewerId) === String(user._id) : false;
@@ -166,6 +169,8 @@ export const getPublicProfile = async (userId, viewerId = null) => {
     displayName: publicName(user),
     username: publicHandle(user),
     avatar: user.avatar,
+    role: staffRole(user),
+    level: levelInfo(user.stats?.xp).level,
     bio: user.bio || '',
     stats: user.stats,
     createdAt: user.createdAt,

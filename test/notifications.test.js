@@ -30,7 +30,7 @@ describe('notification preferences', () => {
   });
 
   it('every type has a category', () => {
-    for (const type of ['follow', 'race-invite', 'achievement', 'race-result', 'daily-expiring', 'daily-rank', 'account']) assert.ok(CATEGORY_OF[type], type);
+    for (const type of ['follow', 'race-invite', 'achievement', 'level-up', 'race-result', 'daily-expiring', 'daily-rank', 'account']) assert.ok(CATEGORY_OF[type], type);
   });
 });
 

@@ -1,5 +1,6 @@
 import mongoose, { Schema } from 'mongoose';
 import { permissionsFor } from '../config/permissions.js';
+import { levelInfo } from '../config/levels.js';
 
 // Per-category stats bucket (one per time/word preset, plus a 'custom' bucket).
 const bucketStatsSchema = new Schema(
@@ -111,6 +112,12 @@ const userSchema = new Schema(
       },
       // Tests whose first key was typed. gamesPlayed counts the finished
       // ones, so a started-but-abandoned test only shows up here.
+      // Total experience: grows with play and staff grants (config/levels.js turns it into a level).
+      xp: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
       testsStarted: {
         type: Number,
         default: 0,
@@ -218,6 +225,7 @@ userSchema.index({ status: 1 });
 userSchema.set('toJSON', {
   transform: (doc, ret) => {
     ret.permissions = permissionsFor(doc);
+    ret.level = levelInfo(doc.stats?.xp);
     return ret;
   },
 });

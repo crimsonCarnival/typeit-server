@@ -26,6 +26,7 @@ router.get('/users/:userId', can('users.view'), adminController.getUserById);
 router.patch('/users/:userId/role', can('users.role'), adminController.updateUserRole);
 router.put('/users/:userId/permissions', can('users.permissions'), moderation.setPermissions);
 router.patch('/users/:userId/status', can('users.moderate'), adminController.updateUserStatus);
+router.post('/users/:userId/xp', can('users.xp'), moderation.grantXp);
 router.post('/users/:userId/warn', can('users.moderate'), moderation.warn);
 router.post('/users/:userId/deactivate', can('users.moderate'), adminController.deactivateUser);
 router.post('/users/:userId/ban', can('users.moderate'), adminController.banUser);

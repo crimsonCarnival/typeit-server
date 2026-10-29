@@ -2,6 +2,8 @@ import User from '../models/user.model.js';
 import { deleteAccount } from './user.service.js';
 import { recordAudit } from './audit.service.js';
 import { notify } from './notification.service.js';
+import { awardXp } from './xp.service.js';
+import { XP_GRANT_MAX } from '../config/levels.js';
 import { FULL_ACCESS_ROLES, PERMISSIONS, ROLES, ROLE_PERMISSIONS, isDelegable, isValidPermission, permissionsFor, rankOf } from '../config/permissions.js';
 
 /** A refused admin action; `status` is the HTTP status to answer with. */
@@ -243,6 +245,34 @@ export const moderateProfile = async (userId, fields, reason, adminId) => {
   const logId = await recordAudit(adminId, 'user.profile-reset', { targetId: userId, reason: why, details: { fields } });
   await notify(userId, { type: 'account', title: 'A moderator reset part of your profile', body: `${fields.join(', ')}: ${why}`, link: '/profile', dedupeKey: auditKey(logId) });
   return updated;
+};
+
+/**
+ * Gives a player XP. Admins and founders only (users.xp can't be delegated),
+ * never to yourself, with a reason; recorded in the audit log and told to the
+ * player. The level it leads to comes from the same curve as earned XP.
+ *
+ * @returns {Promise<{ before: object, after: object }|null>} null when the player does not exist
+ */
+export const grantXp = async (userId, amount, reason, adminId) => {
+  const points = amount;
+  if (typeof points !== 'number' || !Number.isInteger(points) || points < 1 || points > XP_GRANT_MAX) {
+    throw new AdminError(`XP must be a whole number from 1 to ${XP_GRANT_MAX.toLocaleString('en-US')}`);
+  }
+  const why = cleanReason(reason);
+  if (!why) throw new AdminError('A reason is required');
+  if (String(userId) === String(adminId)) throw new AdminError('You cannot grant XP to yourself');
+  const actor = await User.findById(adminId).select('role');
+  if (rankOf(actor?.role) < rankOf('admin')) throw new AdminError('Only admins can grant XP', 403);
+  const target = await User.findById(userId).select('role status');
+  if (!target) return null;
+  if (target.status !== 'active') throw new AdminError('That account is not active');
+
+  const levels = await awardXp(userId, points);
+  if (!levels) throw new AdminError('Could not grant XP', 500);
+  const logId = await recordAudit(adminId, 'user.xp', { targetId: userId, reason: why, details: { amount: points, level: { from: levels.before.level, to: levels.after.level } } });
+  await notify(userId, { type: 'account', title: `A staff member granted you ${points.toLocaleString('en-US')} XP`, body: why, link: '/profile', dedupeKey: auditKey(logId) });
+  return levels;
 };
 
 export const PERMISSION_CATALOG = Object.entries(PERMISSIONS).map(([id, description]) => ({ id, description }));

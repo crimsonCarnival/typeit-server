@@ -1,4 +1,6 @@
 import { generateWordContent } from '../data/words.js';
+import { awardXp } from './xp.service.js';
+import { xpForRun } from '../config/levels.js';
 import Session from '../models/session.model.js';
 import Result from '../models/result.model.js';
 import User from '../models/user.model.js';
@@ -591,6 +593,8 @@ export const endGame = async (run, { typedText = '', elapsedMs, userId = null, m
         $inc: incUpdates,
         ...(implausible ? {} : { $max: maxUpdates }),
       });
+      // Experience for the time spent typing (a daily run earns a bonus). Once per saved run.
+      await awardXp(userId, xpForRun(elapsed, { daily: !!session.dailyDate }));
     }
   } catch (e) {
     // Error ignored

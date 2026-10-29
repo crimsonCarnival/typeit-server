@@ -7,7 +7,7 @@ import { seededRandom } from '../utils/seeded-random.js';
 import { JWT_SECRET } from '../config/env.js';
 import { DAILY_HISTORY_DAYS, DAILY_LEADERS_LIMIT, DAILY_SETTINGS_POOL } from '../config/daily.js';
 import { rankEntries } from './ranking.service.js';
-import { publicHandle, publicName } from '../utils/public-identity.js';
+import { publicHandle, publicName, staffRole } from '../utils/public-identity.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -87,6 +87,7 @@ const publicUser = (u) => ({
   username: publicHandle(u),
   displayName: publicName(u),
   avatar: u.avatar || '',
+  role: staffRole(u),
 });
 
 /** Today's challenge summary (never the text), leaders, past winners and the caller's status. */
@@ -97,7 +98,7 @@ export const getDailyOverview = async (userId, now = new Date()) => {
 
   const [rankedToday, playersToday, mine, pastBest] = await Promise.all([
     DailyAttempt.find({ date, ranked: true })
-      .populate('userId', 'username displayName avatar status')
+      .populate('userId', 'username displayName avatar role status')
       .lean(),
     DailyAttempt.countDocuments({ date, finishedAt: { $ne: null } }),
     userId ? DailyAttempt.find({ userId, date: { $in: [date, ...pastDates] } }).lean() : [],
@@ -115,7 +116,7 @@ export const getDailyOverview = async (userId, now = new Date()) => {
   ).map(({ achievedAt, ...entry }) => entry);
 
   const winners = await User.find({ _id: { $in: pastBest.map((b) => b.userId) }, status: 'active' })
-    .select('username displayName avatar')
+    .select('username displayName avatar role')
     .lean();
   const winnerById = new Map(winners.map((u) => [u._id.toString(), publicUser(u)]));
   const myByDate = new Map(mine.map((a) => [a.date, a]));
@@ -170,7 +171,7 @@ export const getDailyDay = async (userId, date, now = new Date()) => {
   if (!challenge) return { error: 'No challenge on that day', status: 404 };
 
   const [ranked, started, finished, mine] = await Promise.all([
-    DailyAttempt.find({ date, ranked: true }).populate('userId', 'username displayName avatar status').lean(),
+    DailyAttempt.find({ date, ranked: true }).populate('userId', 'username displayName avatar role status').lean(),
     DailyAttempt.countDocuments({ date }),
     DailyAttempt.countDocuments({ date, finishedAt: { $ne: null } }),
     userId ? DailyAttempt.findOne({ userId, date }).lean() : null,

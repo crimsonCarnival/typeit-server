@@ -16,6 +16,7 @@ export const CATEGORY_OF = Object.freeze({
   follow: 'social',
   'race-invite': 'social',
   achievement: 'achievements',
+  'level-up': 'achievements',
   'race-result': 'races',
   'daily-expiring': 'daily',
   'daily-rank': 'daily',

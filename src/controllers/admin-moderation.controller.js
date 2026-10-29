@@ -1,4 +1,4 @@
-import { AdminError, PERMISSION_CATALOG, moderateProfile, setPermissionOverrides, warnUser } from '../services/admin.service.js';
+import { AdminError, PERMISSION_CATALOG, grantXp, moderateProfile, setPermissionOverrides, warnUser } from '../services/admin.service.js';
 import { listAudit, recordAudit } from '../services/audit.service.js';
 import { listRoomsForAdmin, moderateRoom } from '../services/race/race-manager.js';
 import { permissionsFor, ROLE_PERMISSIONS } from '../config/permissions.js';
@@ -58,6 +58,17 @@ const adminModerationController = {
       const user = await moderateProfile(req.params.userId, req.body?.fields, asString(req.body?.reason), req.userId);
       if (!user) return notFound(res);
       res.json({ success: true, data: user });
+    } catch (error) {
+      fail(res, error);
+    }
+  },
+
+  /** POST /api/admin/users/:userId/xp  { amount, reason } */
+  grantXp: async (req, res) => {
+    try {
+      const levels = await grantXp(req.params.userId, req.body?.amount, asString(req.body?.reason), req.userId);
+      if (!levels) return notFound(res);
+      res.json({ success: true, data: { xp: levels.after.xp, level: levels.after.level, levelBefore: levels.before.level } });
     } catch (error) {
       fail(res, error);
     }

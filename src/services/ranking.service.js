@@ -1,7 +1,7 @@
 import Result from '../models/result.model.js';
 import { MIN_RANKED_INTEGRITY_VERSION } from '../config/integrity.js';
 import { RANKINGS_CACHE_TTL_MS, REGION_BY_TZ_AREA } from '../config/rankings.js';
-import { publicHandle, publicName } from '../utils/public-identity.js';
+import { publicHandle, publicName, staffRole } from '../utils/public-identity.js';
 
 /** Maps an IANA timezone to a ranking region, or null when it has none. */
 export const regionFromTimezone = (timezone) => {
@@ -74,7 +74,7 @@ const loadBoard = async ({ period, mode, time, modifiers }, now) => {
         as: 'user',
         pipeline: [
           { $match: { status: 'active' } },
-          { $project: { username: 1, displayName: 1, avatar: 1, timezone: 1, 'stats.raceWins': 1 } },
+          { $project: { username: 1, displayName: 1, avatar: 1, role: 1, timezone: 1, 'stats.raceWins': 1 } },
         ],
       },
     },
@@ -86,6 +86,7 @@ const loadBoard = async ({ period, mode, time, modifiers }, now) => {
     username: publicHandle(row.user),
     displayName: publicName(row.user),
     avatar: row.user.avatar || '',
+    role: staffRole(row.user),
     region: regionFromTimezone(row.user.timezone),
     raceWins: row.user.stats?.raceWins || 0,
     wpm: row.wpm,

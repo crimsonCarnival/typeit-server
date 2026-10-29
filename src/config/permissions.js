@@ -21,12 +21,13 @@ export const PERMISSIONS = Object.freeze({
   'content.moderate': 'Reset offensive display names, bios and avatars',
   'race.moderate': 'Mute players and remove them from race rooms',
   'audit.view': 'Read the audit log',
+  'users.xp': 'Grant XP to players',
 });
 
 export const PERMISSION_IDS = Object.freeze(Object.keys(PERMISSIONS));
 
-/** Managing roles and permissions is for admins and founders only: it can't be delegated to anyone else. */
-export const NON_DELEGABLE = Object.freeze(['users.role', 'users.permissions']);
+/** Managing roles and permissions, and granting XP, is for admins and founders only: it can't be delegated to anyone else. */
+export const NON_DELEGABLE = Object.freeze(['users.role', 'users.permissions', 'users.xp']);
 
 export const ROLES = Object.freeze(['user', 'moderator', 'admin', 'founder']);
 

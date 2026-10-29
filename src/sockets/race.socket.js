@@ -10,7 +10,7 @@ import {
   RACE_SOCKET_PATH,
 } from '../config/race.js';
 import { connect, disconnect, handleMessage } from '../services/race/race-manager.js';
-import { publicHandle, publicName } from '../utils/public-identity.js';
+import { publicHandle, publicName, staffRole } from '../utils/public-identity.js';
 
 // Allowed fields per message type; anything else is rejected before it
 // reaches the race manager.
@@ -69,13 +69,14 @@ const validShape = (msg) => {
 
 const authenticate = async (token) => {
   const { userId } = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
-  const user = await User.findById(userId).select('username displayName avatar status stats.raceRating').lean();
+  const user = await User.findById(userId).select('username displayName avatar role status stats.raceRating').lean();
   if (!user || user.status !== 'active') throw new Error('inactive');
   return {
     userId: user._id.toString(),
     username: publicHandle(user),
     displayName: publicName(user),
     avatar: user.avatar || '',
+    role: staffRole(user),
     rating: user.stats?.raceRating ?? 1000,
   };
 };

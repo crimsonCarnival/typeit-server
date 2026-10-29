@@ -7,6 +7,8 @@ import { generateText, startRaceSession } from '../game.service.js';
 import { syncAchievements } from '../achievement.service.js';
 import { areMutual } from '../follow.service.js';
 import { notify } from '../notification.service.js';
+import { awardXp } from '../xp.service.js';
+import { XP_RACE_FINISH, XP_RACE_WIN } from '../../config/levels.js';
 import { formMatches } from './matchmaking.js';
 import {
   CHAT_COOLDOWN_MS,
@@ -470,6 +472,8 @@ const notifyRaceResults = (room, saved, changes) =>
       const delta = changes?.get(p.userId);
       const rating = delta === undefined || delta === null ? '' : ` Rating ${delta >= 0 ? '+' : ''}${delta}.`;
       const won = p.userId === room.winnerId;
+      // Experience for finishing, and more for a verified win; once per saved race.
+      void awardXp(p.userId, (p.finishedAt ? XP_RACE_FINISH : 0) + (won ? XP_RACE_WIN : 0));
       return notify(p.userId, {
         type: 'race-result',
         title: won ? `You won "${room.name}"` : p.place ? `You placed #${p.place} in "${room.name}"` : `You didn't finish "${room.name}"`,

@@ -2,6 +2,7 @@ import { register, login, verifyToken } from '../services/auth.service.js';
 import { checkEmail, checkOptionalString, checkPassword, checkUsername } from '../utils/validate.js';
 import { errorMessage } from '../utils/http.js';
 import { permissionsFor } from '../config/permissions.js';
+import { levelInfo } from '../config/levels.js';
 
 /**
  * Public shape of a user returned to the client. Never includes password.
@@ -15,6 +16,7 @@ export const toPublicUser = (user) => ({
   bio: user.bio || '',
   role: user.role,
   permissions: permissionsFor(user),
+  level: levelInfo(user.stats?.xp),
   timezone: user.timezone,
   timezoneManual: !!user.timezoneManual,
   stats: user.stats,

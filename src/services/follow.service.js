@@ -1,11 +1,11 @@
 import mongoose from 'mongoose';
 import Follow from '../models/follow.model.js';
 import User from '../models/user.model.js';
-import { publicHandle, publicName } from '../utils/public-identity.js';
+import { publicHandle, publicName, staffRole } from '../utils/public-identity.js';
 import { notify } from './notification.service.js';
 
 export const FOLLOW_LIST_LIMIT = 100;
-const LIST_FIELDS = 'username displayName avatar stats.bestWpm';
+const LIST_FIELDS = 'username displayName avatar role stats.bestWpm';
 
 const DUPLICATE_KEY = 11000;
 
@@ -103,7 +103,7 @@ const listSide = async (filter, otherSide, limit) => {
   return ids
     .map((id) => byId.get(String(id)))
     .filter(Boolean)
-    .map((u) => ({ ...u, username: publicHandle(u), displayName: publicName(u) }));
+    .map((u) => ({ ...u, role: staffRole(u), username: publicHandle(u), displayName: publicName(u) }));
 };
 
 /** Users that follow `userId`. */

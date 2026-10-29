@@ -64,7 +64,9 @@ describe('searchUsers', async () => {
     const [hit] = await searchUsers('@a.n');
     assert.equal(filter.status, 'active');
     assert.equal(filter.$or[0].username.$regex, 'a\\.n');
-    assert.deepEqual(Object.keys(hit).sort(), ['avatar', 'bestWpm', 'displayName', 'followersCount', 'gamesPlayed', 'id', 'username']);
+    assert.deepEqual(Object.keys(hit).sort(), ['avatar', 'bestWpm', 'displayName', 'followersCount', 'gamesPlayed', 'id', 'level', 'role', 'username']);
     assert.equal(hit.displayName, 'ann');
+    assert.equal(hit.role, undefined, 'a player role is never shown, only staff roles');
+    assert.equal(hit.level, 0);
   });
 });

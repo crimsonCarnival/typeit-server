@@ -73,9 +73,10 @@ export const createRoom = ({ code, host, name, isPrivate, rated = false, now, ..
   updatedAt: now,
 });
 
-const newPlayer = ({ userId, username, displayName, avatar, rating = null }) => ({
+const newPlayer = ({ userId, username, displayName, avatar, role, rating = null }) => ({
   userId,
   username,
+  role,
   displayName: displayName || username,
   avatar: avatar || '',
   rating,
