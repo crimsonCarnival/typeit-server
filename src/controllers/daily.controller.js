@@ -1,6 +1,7 @@
 import {
   claimAttempt,
   dateKey,
+  getDailyDay,
   getDailyOverview,
   getOrCreateChallenge,
   releaseAttempt,
@@ -20,6 +21,20 @@ const dailyController = {
       res.json({ success: true, data });
     } catch (err) {
       res.status(500).json({ success: false, error: 'Could not load the daily challenge' });
+    }
+  },
+
+  /**
+   * GET /api/daily/day/:date
+   * Public. A past day's settings, player counts and leaderboard.
+   */
+  day: async (req, res) => {
+    try {
+      const out = await getDailyDay(req.user?._id ?? null, req.params.date);
+      if (out.error) return res.status(out.status).json({ success: false, error: out.error });
+      res.json({ success: true, data: out });
+    } catch (err) {
+      res.status(500).json({ success: false, error: 'Could not load that day' });
     }
   },
 

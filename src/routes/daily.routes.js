@@ -5,6 +5,7 @@ import { auth, optionalAuth } from '../middleware/auth.middleware.js';
 const router = express.Router();
 
 router.get('/', optionalAuth, dailyController.overview);
+router.get('/day/:date', optionalAuth, dailyController.day);
 router.post('/start', auth, dailyController.start);
 router.post('/ghost', auth, dailyController.ghost);
 

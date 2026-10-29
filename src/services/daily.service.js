@@ -152,3 +152,60 @@ export const getDailyOverview = async (userId, now = new Date()) => {
     }),
   };
 };
+
+const DAY_DETAIL_LIMIT = 50;
+
+/**
+ * One past day's details: its settings, how many played, the ranked
+ * leaderboard (top DAY_DETAIL_LIMIT) and the caller's own result. Never the
+ * text. Today stays on the overview, and future or unplayed days have nothing.
+ *
+ * @returns {Promise<{ error: string, status: number } | object>}
+ */
+export const getDailyDay = async (userId, date, now = new Date()) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) return { error: 'Invalid date', status: 400 };
+  if (date >= dateKey(now)) return { error: 'Only past days have a summary', status: 400 };
+
+  const challenge = await DailyChallenge.findOne({ date }).lean();
+  if (!challenge) return { error: 'No challenge on that day', status: 404 };
+
+  const [ranked, started, finished, mine] = await Promise.all([
+    DailyAttempt.find({ date, ranked: true }).populate('userId', 'username displayName avatar status').lean(),
+    DailyAttempt.countDocuments({ date }),
+    DailyAttempt.countDocuments({ date, finishedAt: { $ne: null } }),
+    userId ? DailyAttempt.findOne({ userId, date }).lean() : null,
+  ]);
+
+  const entries = rankEntries(
+    ranked
+      .filter((a) => a.userId && a.userId.status === 'active')
+      .map((a) => ({ ...publicUser(a.userId), wpm: a.wpm, accuracy: a.accuracy, resultId: a.resultId ? a.resultId.toString() : null, achievedAt: a.finishedAt }))
+  ).map(({ achievedAt, ...entry }) => entry);
+
+  const mineRow = userId ? entries.find((e) => e.userId === String(userId)) : null;
+  return {
+    date,
+    settings: {
+      gameMode: challenge.gameMode,
+      wordCount: challenge.wordCount,
+      timeMax: challenge.timeMax,
+      punctuationEnabled: challenge.punctuationEnabled,
+      numbersEnabled: challenge.numbersEnabled,
+    },
+    started,
+    finished,
+    rankedCount: entries.length,
+    averageWpm: entries.length ? Math.round(entries.reduce((sum, e) => sum + e.wpm, 0) / entries.length) : null,
+    winner: entries[0] ?? null,
+    entries: entries.slice(0, DAY_DETAIL_LIMIT),
+    me: userId
+      ? {
+          status: !mine ? 'not-played' : mine.finishedAt ? 'finished' : 'in-progress',
+          wpm: mine?.wpm ?? null,
+          accuracy: mine?.accuracy ?? null,
+          ranked: !!mine?.ranked,
+          rank: mineRow?.rank ?? null,
+        }
+      : null,
+  };
+};
