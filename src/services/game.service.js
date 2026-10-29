@@ -462,6 +462,8 @@ export const endGame = async (run, { typedText = '', elapsedMs, userId = null, m
     modifiers: modifiersOf(run),
     textCategory: run.passage?.category || null,
     practiceKind: run.practice?.kind || null,
+    practiceId: run.practice?.id || null,
+    language: run.gameMode === 'words' ? run.language || null : run.gameMode === 'code' ? run.codeLanguage || null : null,
     dailyDate: run.dailyDate || null,
     migrated: !!migrated,
     userId: userId || run.userId || null,

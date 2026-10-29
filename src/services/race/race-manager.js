@@ -444,6 +444,7 @@ const persistRace = async (room) => {
         accuracy: p.result?.accuracy ?? null,
         ranked: !!p.result?.ranked,
         resultId: p.result?.resultId ?? null,
+        reached75At: p.reached75At ? new Date(p.reached75At) : null,
         ratingChange: changes ? changes.get(p.userId) : null,
       })),
     });

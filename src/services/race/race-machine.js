@@ -12,6 +12,7 @@ import {
   RACE_TIME_LIMITS,
   RACE_WORD_COUNTS,
 } from '../../config/race.js';
+import { UNDERDOG_CHECKPOINT } from '../../config/achievements.js';
 
 /**
  * Race state machine. Pure: every function takes the room (and `now`) and
@@ -244,6 +245,7 @@ export const updateProgress = (room, userId, { index, accuracy }, now) => {
   if (!Number.isInteger(index) || index < 0) return 'bad-progress';
 
   player.index = Math.min(index, room.text.length);
+  if (!player.reached75At && room.mode !== 'time' && player.index >= room.text.length * UNDERDOG_CHECKPOINT) player.reached75At = now;
   const minutes = Math.max((now - room.startAt) / 60000, 1 / 60);
   player.wpm = Math.round(player.index / 5 / minutes);
   if (Number.isFinite(accuracy)) player.accuracy = Math.min(100, Math.max(0, Math.round(accuracy)));
@@ -266,7 +268,11 @@ export const recordFinish = (room, userId, result, now) => {
 
   player.finishedAt = now;
   player.result = result;
-  if (result.completed) player.index = room.text.length;
+  if (result.completed) {
+    player.index = room.text.length;
+    // Progress posts are periodic, so a fast finisher may never have posted past the checkpoint.
+    player.reached75At ??= now;
+  }
   player.wpm = result.wpm;
   player.accuracy = result.accuracy;
   room.updatedAt = now;
@@ -370,7 +376,7 @@ export const publicRoom = (room, now) => ({
   serverNow: now,
   text: room.state === 'racing' || room.state === 'finished' ? room.text : null,
   winnerId: room.winnerId,
-  players: room.players.map(({ result, ...p }) => ({ ...p, ranked: result ? !!result.ranked : null })),
+  players: room.players.map(({ result, reached75At: _reached75At, ...p }) => ({ ...p, ranked: result ? !!result.ranked : null })),
   // Rating changes once a rated race is over (userId -> delta).
   ratingChanges: room.ratingChanges ?? null,
 });

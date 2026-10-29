@@ -58,6 +58,17 @@ const resultSchema = new Schema(
     wordCount: {
       type: Number,
     },
+    // Words-test language or code-test language (config/texts.js); null for phrases
+    // and for runs saved before this was recorded.
+    language: {
+      type: String,
+      default: null,
+    },
+    // What a practice run targeted: the key or digraph of a drill, the lesson id, else null.
+    practiceId: {
+      type: String,
+      default: null,
+    },
     // Practice run kind ('drill', 'lesson', 'common-words', 'list'), else null.
     practiceKind: {
       type: String,

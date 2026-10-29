@@ -6,6 +6,7 @@ import User from '../src/models/user.model.js';
 import DailyAttempt from '../src/models/daily-attempt.model.js';
 import UserAchievement from '../src/models/user-achievement.model.js';
 import LessonProgress from '../src/models/lesson-progress.model.js';
+import Race from '../src/models/race.model.js';
 import {
   computeMetrics,
   evaluateAchievements,
@@ -16,6 +17,13 @@ import {
 import { ACHIEVEMENTS, ACHIEVEMENT_CATEGORIES, ACHIEVEMENT_RARITIES } from '../src/config/achievements.js';
 
 const byId = (list) => Object.fromEntries(list.map((a) => [a.id, a]));
+
+/** Empty run and race history, shaped like the query chains the service uses. */
+const mockHistory = (runs = [], races = []) => {
+  const chain = (rows) => ({ sort: () => ({ limit: () => ({ select: () => ({ lean: async () => [...rows] }) }) }) });
+  mock.method(Result, 'find', () => chain(runs));
+  mock.method(Race, 'find', () => chain(races));
+};
 
 describe('achievement definitions', () => {
   it('has unique badges covering every category and rarity', () => {
@@ -116,8 +124,13 @@ describe('computeMetrics', () => {
     mock.method(LessonProgress, 'find', () => ({ select: () => ({ lean: async () => [{ lessonId: 'home-left' }, { lessonId: 'common-words' }] }) }));
     mock.method(DailyAttempt, 'countDocuments', async () => 2);
     mock.method(User, 'findById', () => ({ select: () => ({ lean: async () => ({ stats: { raceWins: 0, streak: { longest: 4 } } }) }) }));
+    mockHistory();
 
-    const m = await computeMetrics(new mongoose.Types.ObjectId());
+    const { activeHours, ...history } = await computeMetrics(new mongoose.Types.ObjectId());
+    assert.equal(activeHours, 0);
+    // With no history, every history-based metric is zero.
+    assert.ok(Object.values(history).filter((v) => typeof v === 'number').length > 20);
+    const m = Object.fromEntries(Object.entries(history).filter(([k]) => ['runs', 'bestWpm', 'flawlessRuns', 'bestHardcoreWpm', 'drillRuns', 'listRuns', 'lessonsPassed', 'commonWordsPassed', 'best60sAccuracy', 'bestConsistency', 'longestRunMinutes', 'speedrunWords', 'longestStreak', 'dailiesFinished', 'raceWins'].includes(k)));
     assert.deepEqual(m, {
       runs: 3, bestWpm: 71, flawlessRuns: 0, bestHardcoreWpm: 64, drillRuns: 4, listRuns: 1, lessonsPassed: 1, commonWordsPassed: 1,
       best60sAccuracy: 96, bestConsistency: 80,
@@ -137,6 +150,7 @@ describe('syncAchievements', () => {
     mock.method(DailyAttempt, 'countDocuments', async () => 0);
     mock.method(User, 'findById', () => ({ select: () => ({ lean: async () => ({ stats: {} }) }) }));
     mock.method(LessonProgress, 'find', () => ({ select: () => ({ lean: async () => [] }) }));
+    mockHistory();
 
     const stored = new Map();
     mock.method(UserAchievement, 'bulkWrite', async (ops) => {

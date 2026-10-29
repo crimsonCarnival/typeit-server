@@ -4,13 +4,43 @@ import User from '../models/user.model.js';
 import DailyAttempt from '../models/daily-attempt.model.js';
 import UserAchievement from '../models/user-achievement.model.js';
 import LessonProgress from '../models/lesson-progress.model.js';
+import Race from '../models/race.model.js';
 import {
   ACHIEVEMENTS,
   FLAWLESS_MIN_CORRECT_CHARS,
+  HISTORY_RACE_LIMIT,
+  HISTORY_RUN_LIMIT,
+  METRONOME_RUNS,
   SPEEDRUN_SECONDS,
   SPEEDRUN_WORDS,
+  WELL_TRAVELED_CONFIGS,
+  WELL_TRAVELED_RUNS,
 } from '../config/achievements.js';
 import { dateKey } from './daily.service.js';
+import {
+  comebackProgress,
+  countBreakthroughs,
+  countClockFinishes,
+  countDistinctOpponents,
+  countImprovedKeys,
+  countLanguagesPlayed,
+  countModesPlayed,
+  countModifierRuns,
+  countOldRecordsBroken,
+  countPerfectStorms,
+  countPhotoFinishes,
+  countUnderdogWins,
+  longestMetronome,
+  longestMomentumChain,
+  longestPerfectStreak,
+  longestWinStreak,
+  personalBestEvents,
+  wellTraveledProgress,
+} from './achievement-history.js';
+
+const RUN_FIELDS =
+  'createdAt wpm accuracy successes elapsedTime timeMax gameMode wordCount modifiers language textCategory ' +
+  'ranked practiceKind practiceId dailyDate completionPercentage penalty keyPresses keyErrors';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -44,10 +74,50 @@ export const evaluateAchievements = (metrics) =>
     return { id: a.id, value: Math.min(value, a.target), unlocked: value >= a.target };
   });
 
-/** Reads every metric the badges need, in four queries. */
+/**
+ * Metrics that need the order of a player's runs and races (personal bests,
+ * sequences, drills). Pure: the same history always gives the same numbers.
+ * @param {object[]} runs   oldest first
+ * @param {object[]} races  oldest first
+ */
+export const historyMetrics = (runs, races, userId) => {
+  const events = personalBestEvents(runs);
+  return {
+    breakthroughs: countBreakthroughs(events),
+    oldRecordsBroken: countOldRecordsBroken(events),
+    clockFinishes: countClockFinishes(events),
+    momentumChain: longestMomentumChain(events),
+    perfectStorms: countPerfectStorms(runs),
+    metronomeRuns: Math.min(longestMetronome(runs), METRONOME_RUNS),
+    perfectStreak: longestPerfectStreak(runs),
+    numbersRuns: countModifierRuns(runs, ['numbers', 'both']),
+    punctuationRuns: countModifierRuns(runs, ['punctuation', 'both']),
+    bothModifierRuns: countModifierRuns(runs, ['both']),
+    wellTraveled: wellTraveledProgress(runs, WELL_TRAVELED_RUNS, WELL_TRAVELED_CONFIGS),
+    modesPlayed: countModesPlayed(runs),
+    languagesPlayed: countLanguagesPlayed(runs),
+    comebackRuns: comebackProgress(runs),
+    improvedKeys: countImprovedKeys(runs),
+    winStreak: longestWinStreak(races, userId),
+    photoFinishes: countPhotoFinishes(races, userId),
+    underdogWins: countUnderdogWins(races, userId),
+    distinctOpponents: countDistinctOpponents(races, userId),
+  };
+};
+
+/** The player's latest runs and races, oldest first, without the heavy fields. */
+const loadHistory = async (id) => {
+  const [runs, races] = await Promise.all([
+    Result.find({ userId: id }).sort({ createdAt: -1 }).limit(HISTORY_RUN_LIMIT).select(RUN_FIELDS).lean(),
+    Race.find({ 'players.userId': id }).sort({ finishedAt: -1 }).limit(HISTORY_RACE_LIMIT).select('players mode winnerId startAt finishedAt').lean(),
+  ]);
+  return { runs: runs.reverse(), races: races.reverse() };
+};
+
+/** Reads every metric the badges need, in a few queries. */
 export const computeMetrics = async (userId) => {
   const id = new mongoose.Types.ObjectId(String(userId));
-  const [agg, dailiesFinished, user, lessons] = await Promise.all([
+  const [agg, dailiesFinished, user, lessons, history] = await Promise.all([
     Result.aggregate([
       { $match: { userId: id } },
       {
@@ -55,6 +125,7 @@ export const computeMetrics = async (userId) => {
           _id: null,
           runs: { $sum: 1 },
           maxElapsed: { $max: '$elapsedTime' },
+          activeSeconds: { $sum: { $min: ['$elapsedTime', '$timeMax'] } },
           bestWpm: { $max: { $cond: ['$ranked', '$wpm', 0] } },
           flawlessRuns: {
             $sum: {
@@ -89,10 +160,14 @@ export const computeMetrics = async (userId) => {
     DailyAttempt.countDocuments({ userId: id, finishedAt: { $ne: null } }),
     User.findById(id).select('stats.raceWins stats.streak').lean(),
     LessonProgress.find({ userId: id, completedAt: { $ne: null } }).select('lessonId').lean(),
+    loadHistory(id),
   ]);
 
   const r = agg[0] || {};
   return {
+    ...historyMetrics(history.runs, history.races, String(userId)),
+    // Whole lifetime, not just the history window; each run counts at most its own time limit.
+    activeHours: Math.round(((r.activeSeconds || 0) / 3600) * 10) / 10,
     runs: r.runs || 0,
     bestWpm: r.bestWpm || 0,
     flawlessRuns: r.flawlessRuns || 0,
@@ -110,6 +185,26 @@ export const computeMetrics = async (userId) => {
     raceWins: user?.stats?.raceWins || 0,
   };
 };
+
+/**
+ * A hidden badge before it is earned: no name, id, icon, target or progress
+ * that would give away what it asks for, only a vague hint. The id is a
+ * position-based placeholder, so it can't leak through the page either.
+ */
+export const maskHidden = (card, hint, index) => ({
+  id: `hidden-${index}`,
+  hidden: true,
+  name: 'Hidden achievement',
+  description: hint || 'Keep playing to find this one.',
+  category: card.category,
+  rarity: card.rarity,
+  icon: 'lock',
+  target: 1,
+  unit: '',
+  value: 0,
+  unlocked: false,
+  unlockedAt: null,
+});
 
 /** Records today's play on the player's streak. */
 export const recordPlayDay = async (userId, now = new Date()) => {
@@ -148,13 +243,16 @@ export const syncAchievements = async (userId, now = new Date()) => {
   const unlockedAt = new Map(stored.map((s) => [s.achievementId, s.unlockedAt]));
 
   return {
-    achievements: ACHIEVEMENTS.map(({ metric, ...a }, i) => ({
-      ...a,
-      value: progress[i].value,
-      // A stored unlock stays unlocked even if criteria later tighten.
-      unlocked: unlockedAt.has(a.id),
-      unlockedAt: unlockedAt.get(a.id) ?? null,
-    })),
+    achievements: ACHIEVEMENTS.map(({ metric, hint, ...a }, i) => {
+      const card = {
+        ...a,
+        value: progress[i].value,
+        // A stored unlock stays unlocked even if criteria later tighten.
+        unlocked: unlockedAt.has(a.id),
+        unlockedAt: unlockedAt.get(a.id) ?? null,
+      };
+      return a.hidden && !card.unlocked ? maskHidden(card, hint, i) : card;
+    }),
     newlyUnlocked,
   };
 };

@@ -27,6 +27,8 @@ const raceSchema = new Schema(
         accuracy: { type: Number, default: null },
         ranked: { type: Boolean, default: false },
         resultId: { type: Schema.Types.ObjectId, ref: 'Result', default: null },
+        // When the racer passed 75% of the text (server clock); null if unknown.
+        reached75At: { type: Date, default: null },
         ratingChange: { type: Number, default: null },
       },
     ],
