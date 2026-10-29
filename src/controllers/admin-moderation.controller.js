@@ -4,6 +4,7 @@ import { listRoomsForAdmin, moderateRoom } from '../services/race/race-manager.j
 import { permissionsFor, ROLE_PERMISSIONS } from '../config/permissions.js';
 import { asString, clampInt } from '../utils/http.js';
 import User from '../models/user.model.js';
+import { compileChangelog } from '../services/changelog.service.js';
 import { rankOf } from '../config/permissions.js';
 
 const fail = (res, error) => {
@@ -86,6 +87,19 @@ const adminModerationController = {
       res.json({ success: true, data });
     } catch (error) {
       fail(res, error);
+    }
+  },
+
+  /** POST /api/admin/changelog/refresh — founders recompile the release notes now. */
+  refreshChangelog: async (req, res) => {
+    if (req.user.role !== 'founder') return res.status(403).json({ success: false, error: 'Only founders can do this' });
+    try {
+      const out = await compileChangelog();
+      await recordAudit(req.userId, 'changelog.refresh', { details: { releases: out.releases, commits: out.commits } });
+      res.json({ success: true, data: out });
+    } catch (error) {
+      console.error('[changelog]', error?.message || error);
+      res.status(502).json({ success: false, error: error?.message?.startsWith('No repos') || error?.message?.startsWith('GitHub') ? error.message : 'Could not compile the release notes' });
     }
   },
 

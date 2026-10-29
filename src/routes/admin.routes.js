@@ -38,6 +38,9 @@ router.delete('/users/:userId', can('users.delete'), adminController.deleteUser)
 router.get('/races', can('race.moderate'), moderation.races);
 router.post('/races/:code/moderate', can('race.moderate'), moderation.moderateRace);
 
+// Release notes (founders only; checked in the handler)
+router.post('/changelog/refresh', can(), moderation.refreshChangelog);
+
 // Audit log
 router.get('/audit', can('audit.view'), moderation.audit);
 

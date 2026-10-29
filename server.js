@@ -8,6 +8,7 @@ import { PORT, NODE_ENV, CORS_ORIGINS } from './src/config/env.js';
 import { attachRaceSocket } from './src/sockets/race.socket.js';
 import { startNotificationScheduler } from './src/services/notification-scheduler.js';
 import { applyConfiguredRoles } from './src/services/bootstrap-roles.js';
+import { startChangelogSchedule } from './src/services/changelog.service.js';
 import { errorHandler, notFound, sanitizeBody, securityHeaders } from './src/middleware/security.middleware.js';
 import { rateLimit } from './src/middleware/rateLimit.middleware.js';
 
@@ -67,6 +68,7 @@ const server = app.listen(PORT, () => {
 // same origin policy as CORS.
 attachRaceSocket(server, isAllowedOrigin);
 startNotificationScheduler();
+startChangelogSchedule();
 
 connectDB()
   // A failure here must not take the server down: the roles can be fixed in the admin area.

@@ -1,3 +1,4 @@
+import { CONTACT_EMAIL } from '../config/env.js';
 import express from 'express';
 import gameRoutes from './game.routes.js';
 import authRoutes from './auth.routes.js';
@@ -12,6 +13,7 @@ import learnRoutes from './learn.routes.js';
 import raceRoutes from './race.routes.js';
 import replayRoutes from './replay.routes.js';
 import notificationRoutes from './notifications.routes.js';
+import changelogRoutes from './changelog.routes.js';
 
 const router = express.Router();
 
@@ -28,6 +30,12 @@ router.use('/learn', learnRoutes);
 router.use('/race', raceRoutes);
 router.use('/replays', replayRoutes);
 router.use('/notifications', notificationRoutes);
+router.use('/changelog', changelogRoutes);
+
+// Public facts about the site the client needs at runtime.
+router.get('/site', (req, res) => {
+  res.json({ success: true, data: { contactEmail: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(CONTACT_EMAIL) ? CONTACT_EMAIL : '' } });
+});
 
 router.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
