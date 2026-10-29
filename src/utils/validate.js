@@ -151,9 +151,13 @@ export const parseSettingsPatch = (body) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'Settings must be an object' };
   const settings = {};
   for (const [key, value] of Object.entries(body)) {
+    // Own keys only: an inherited name like "constructor" must not find Object and pass as a validator.
+    if (!Object.hasOwn(SETTINGS_SCHEMA, key)) return { error: `Unknown setting: ${key}` };
     const allowed = SETTINGS_SCHEMA[key];
-    if (!allowed) return { error: `Unknown setting: ${key}` };
-    if (!allowed.includes(value)) return { error: `Invalid value for ${key}` };
+    const ok = allowed instanceof RegExp ? typeof value === 'string' && allowed.test(value)
+      : typeof allowed === 'function' ? allowed(value)
+      : allowed.includes(value);
+    if (!ok) return { error: `Invalid value for ${key}` };
     settings[key] = value;
   }
   return { settings };

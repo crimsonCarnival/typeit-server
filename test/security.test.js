@@ -66,9 +66,31 @@ describe('settings validation', async () => {
   });
 
   it('rejects unknown keys, bad values and non-objects', () => {
-    assert.ok(parseSettingsPatch({ theme: 'neon' }).error);
+    // Themes are a client catalog: any well-formed id is accepted, anything else is not.
+    assert.deepEqual(parseSettingsPatch({ theme: 'nord-light' }), { settings: { theme: 'nord-light' } });
+    for (const bad of ['Neon!', '', 'a'.repeat(33), 42, { $gt: '' }, '<script>']) assert.ok(parseSettingsPatch({ theme: bad }).error, String(bad));
+    assert.ok(parseSettingsPatch({ caretStyle: 'neon' }).error);
     assert.ok(parseSettingsPatch({ $set: { role: 'admin' } }).error);
     assert.ok(parseSettingsPatch(['theme']).error);
     assert.ok(parseSettingsPatch(null).error);
+  });
+});
+
+describe('number-range settings', async () => {
+  const { parseSettingsPatch: parse } = await import('../src/utils/validate.js');
+  it('accept whole numbers in range, and 0 to switch a minimum off', () => {
+    assert.deepEqual(parse({ paceCaretWpm: 120 }), { settings: { paceCaretWpm: 120 } });
+    assert.deepEqual(parse({ minWpm: 0, minAccuracy: 95 }), { settings: { minWpm: 0, minAccuracy: 95 } });
+    for (const bad of [{ paceCaretWpm: 5 }, { paceCaretWpm: 120.5 }, { paceCaretWpm: '120' }, { minWpm: 5 }, { minAccuracy: 101 }, { minAccuracy: 40 }]) assert.ok(parse(bad).error, JSON.stringify(bad));
+  });
+});
+
+describe('settings keys from the prototype', async () => {
+  const { parseSettingsPatch: parse } = await import('../src/utils/validate.js');
+  it('are unknown settings, never validators', () => {
+    for (const key of ['constructor', 'toString', 'hasOwnProperty', 'valueOf', '__proto__']) {
+      const body = JSON.parse(`{"${key}": {"polluted": true}}`);
+      assert.ok(parse(body).error, key);
+    }
   });
 });

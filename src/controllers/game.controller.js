@@ -1,3 +1,4 @@
+import Session from '../models/session.model.js';
 import {
   createSession,
   getSession,
@@ -251,7 +252,14 @@ const gameController = {
         run = out.run;
       }
 
-      const results = await endGame(run, { typedText, elapsedMs, userId });
+      // Practising without saving: score it like a guest run, keep nothing.
+      const discard = !!userId && req.body?.discard === true && !run.dailyDate && !run.raceCode && !run.practice;
+      const results = await endGame(run, { typedText, elapsedMs, userId: discard ? null : userId });
+      if (discard) {
+        // Nothing to resume after a reload: the keys go with the unsaved run.
+        await Session.updateOne({ _id: run._id }, { $set: { keys: [], keyCount: 0, startedAt: null, typedText: '' } });
+        return res.json({ success: true, data: { ...results, discarded: true } });
+      }
       if (!userId) {
         // Kept so the run can be saved if the guest signs in now.
         run.finished = { typedText, elapsedMs };
