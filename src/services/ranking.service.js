@@ -49,9 +49,9 @@ const loadBoard = async ({ period, mode, time, modifiers }, now) => {
     integrityVersion: { $gte: MIN_RANKED_INTEGRITY_VERSION[mode] ?? 3 },
     userId: { $ne: null },
     gameMode: mode,
-    timeMax: time,
     modifiers,
   };
+  if (time !== null) match.timeMax = time;
   if (period === 'month') match.createdAt = { $gte: startOfUtcMonth(now) };
 
   const rows = await Result.aggregate([

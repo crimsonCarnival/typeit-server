@@ -16,14 +16,15 @@ import {
 const parseQuery = (query) => {
   const period = query.period ?? 'all';
   const mode = query.mode ?? 'words';
-  const time = Number(query.time ?? 60);
+  // Phrases runs have no time limit, so their board ignores it.
+  const time = mode === 'phrases' ? null : Number(query.time ?? 60);
   const modifiers = query.modifiers ?? 'none';
   const region = query.region ?? 'all';
   const limit = Number(query.limit ?? DEFAULT_RANKINGS_LIMIT);
 
   if (!RANKING_PERIODS.includes(period)) return { error: 'Invalid period' };
   if (!RANKING_MODES.includes(mode)) return { error: 'Invalid mode' };
-  if (!RANKING_TIME_LIMITS.includes(time)) return { error: 'Invalid time limit' };
+  if (time !== null && !RANKING_TIME_LIMITS.includes(time)) return { error: 'Invalid time limit' };
   if (!RANKING_MODIFIERS.includes(modifiers)) return { error: 'Invalid modifiers' };
   if (!RANKING_REGIONS.includes(region)) return { error: 'Invalid region' };
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_RANKINGS_LIMIT) return { error: 'Invalid limit' };

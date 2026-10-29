@@ -92,7 +92,8 @@ export const getPbGhost = async (userId, { gameMode, timeMax }) => {
     userId,
     ranked: true,
     gameMode,
-    timeMax,
+    // Phrases have no time limit: any ranked phrases run can be the PB.
+    ...(gameMode === 'phrases' ? {} : { timeMax }),
     text: { $exists: true },
   })
     .sort({ wpm: -1, createdAt: 1 })
