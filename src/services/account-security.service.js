@@ -61,6 +61,20 @@ export const setPassword = async (userId, { current, next, reauth }) => {
   return methodChanged(user, adding ? 'A password was added to your account' : 'Your password was changed', adding ? 'You can now sign in with a password.' : 'Your password is different now.');
 };
 
+/**
+ * Proves the player behind the session is the owner before an irreversible
+ * action (reset, delete): the password, or for a Google-only account a fresh
+ * Google confirmation. A stolen session alone must not be able to wipe an account.
+ */
+export const confirmIdentity = async (userId, { password, reauth }) => {
+  const user = await loadWithPassword(userId);
+  if (user.password) {
+    if (!(await passwordMatches(user, password))) throw new AccountError('Password is wrong', 403);
+  } else if (!reauthValid(userId, reauth)) {
+    throw new AccountError('Confirm with Google first', 403);
+  }
+};
+
 /** Linking Google needs the account's password when it has one. */
 export const checkCanLinkGoogle = async (userId, password) => {
   const user = await loadWithPassword(userId);
