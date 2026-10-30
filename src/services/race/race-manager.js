@@ -594,5 +594,8 @@ const loop = setInterval(() => {
 loop.unref();
 
 /** Test/admin helpers. */
+/** Players in a live room, or undefined when it's gone (usage statistics). */
+export const roomSize = (code) => rooms.get(code)?.players.length;
+
 export const _rooms = rooms;
 export const _queue = queue;

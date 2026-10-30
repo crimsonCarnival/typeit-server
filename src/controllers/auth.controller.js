@@ -23,6 +23,7 @@ export const toPublicUser = (user) => ({
   hasPassword: !!user.password,
   googleEmail: user.googleEmail || null,
   leaderboardOptOut: !!user.leaderboardOptOut,
+  usageOptOut: !!user.usageOptOut,
   streakHourOffset: user.streakHourOffset || 0,
   streakOffsetSet: !!user.streakOffsetSetAt,
   usernameChangedAt: user.usernameChangedAt || null,

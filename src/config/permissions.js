@@ -22,6 +22,7 @@ export const PERMISSIONS = Object.freeze({
   'race.moderate': 'Mute players and remove them from race rooms',
   'audit.view': 'Read the audit log',
   'users.xp': 'Grant XP to players',
+  'usage.view': 'See usage statistics',
 });
 
 export const PERMISSION_IDS = Object.freeze(Object.keys(PERMISSIONS));

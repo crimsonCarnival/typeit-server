@@ -8,7 +8,7 @@
 import crypto from 'crypto';
 import UsageDay from '../models/usage-day.model.js';
 import { JWT_SECRET } from '../config/env.js';
-import { BOT_SPEEDS, USAGE_BY_KEY, USAGE_NEW_IDS_PER_IP } from '../config/usage.js';
+import { BOT_SPEEDS, CLIENT_USAGE_EVENTS, USAGE_BY_KEY, USAGE_EVENTS_PER_REQUEST, USAGE_NEW_IDS_PER_IP } from '../config/usage.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -79,6 +79,23 @@ export const record = async ({ visitorId, ip, user, key, dims, finished = false,
     await UsageDay.bulkWrite(keys.map((k) => ({ updateOne: { filter: { day, key: k }, update, upsert: true } })), { ordered: false });
   } catch (err) {
     console.error('[usage] not recorded:', err?.message || err);
+  }
+};
+
+/**
+ * Events the browser reports itself (page views, opening a past daily day).
+ * Only listed keys are kept, at most USAGE_EVENTS_PER_REQUEST per call, each
+ * key once per call. Fire-and-forget like record().
+ */
+export const recordClientEvents = ({ visitorId, events, ip, user, now = Date.now() }) => {
+  if (!Array.isArray(events)) return;
+  const keys = new Set();
+  for (const event of events.slice(0, USAGE_EVENTS_PER_REQUEST)) {
+    if (typeof event?.key === 'string' && CLIENT_USAGE_EVENTS.has(event.key)) keys.add(event.key);
+  }
+  for (const key of keys) {
+    const usage = key === 'daily:past-day' ? { key: 'daily', dims: { action: 'past-day' } } : { key };
+    void record({ visitorId, ip, user, ...usage, now });
   }
 };
 

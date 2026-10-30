@@ -14,6 +14,7 @@ import raceRoutes from './race.routes.js';
 import replayRoutes from './replay.routes.js';
 import notificationRoutes from './notifications.routes.js';
 import changelogRoutes from './changelog.routes.js';
+import usageRoutes from './usage.routes.js';
 
 const router = express.Router();
 
@@ -31,6 +32,7 @@ router.use('/race', raceRoutes);
 router.use('/replays', replayRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/changelog', changelogRoutes);
+router.use('/usage', usageRoutes);
 
 // Public facts about the site the client needs at runtime.
 router.get('/site', (req, res) => {

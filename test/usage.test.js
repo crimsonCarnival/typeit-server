@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import UsageDay from '../src/models/usage-day.model.js';
-import { USAGE_NEW_IDS_PER_IP } from '../src/config/usage.js';
-import { _resetCap, admitVisitor, hashVisitor, record, runUsage, usageKeys } from '../src/services/usage.service.js';
+import { USAGE_EVENTS_PER_REQUEST, USAGE_NEW_IDS_PER_IP } from '../src/config/usage.js';
+import { PERMISSION_IDS } from '../src/config/permissions.js';
+import { _resetCap, admitVisitor, hashVisitor, record, recordClientEvents, runUsage, usageKeys } from '../src/services/usage.service.js';
 
 const uuid = (n) => `${String(n).padStart(8, '0')}-1111-4111-8111-111111111111`;
 const DAY = Date.UTC(2026, 9, 30, 12);
@@ -114,5 +115,28 @@ describe('usageKeys', () => {
   it('lists the feature then each detail, keeping only catalogued details', () => {
     assert.deepEqual(usageKeys('race.live', { action: 'joined', size: 7, bogus: 'x' }), ['race.live', 'race.live.action=joined', 'race.live.size=other']);
     assert.deepEqual(usageKeys('nope'), []);
+  });
+});
+
+describe('browser events', () => {
+  let writes;
+  beforeEach(() => {
+    _resetCap();
+    writes = mock.method(UsageDay, 'bulkWrite', async () => ({}));
+  });
+  afterEach(() => mock.restoreAll());
+
+  it('keeps only listed keys, once each, and at most a batch', async () => {
+    const events = [{ key: 'page.rankings' }, { key: 'page.rankings' }, { key: 'test.words' }, { key: 'evil' }, 'junk', { key: 'daily:past-day' }];
+    recordClientEvents({ visitorId: uuid(1), events, ip: '1.1.1.1', user: null, now: DAY });
+    recordClientEvents({ visitorId: uuid(1), events: 'nope', ip: '1.1.1.1', user: null, now: DAY });
+    recordClientEvents({ visitorId: uuid(1), events: [...Array(USAGE_EVENTS_PER_REQUEST).fill({ key: 'evil' }), { key: 'page.stats' }], ip: '1.1.1.1', user: null, now: DAY });
+    await new Promise((r) => setImmediate(r));
+    const keys = writes.mock.calls.map((c) => c.arguments[0].map((op) => op.updateOne.filter.key));
+    assert.deepEqual(keys, [['page.rankings'], ['daily', 'daily.action=past-day']], 'test runs are only counted by the server, and the 21st event is cut');
+  });
+
+  it('usage.view is a permission an admin can hold', () => {
+    assert.ok(PERMISSION_IDS.includes('usage.view'));
   });
 });

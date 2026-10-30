@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { record as recordUsage } from '../services/usage.service.js';
 import { WebSocketServer } from 'ws';
 import User from '../models/user.model.js';
 import { JWT_SECRET } from '../config/env.js';
@@ -69,7 +70,7 @@ const validShape = (msg) => {
 
 const authenticate = async (token) => {
   const decoded = jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS);
-  const user = await User.findById(decoded.userId).select('username displayName avatar role status stats.raceRating tokenVersion').lean();
+  const user = await User.findById(decoded.userId).select('username displayName avatar role status stats.raceRating tokenVersion usageOptOut').lean();
   if (!user || user.status !== 'active' || !tokenIsCurrent(decoded, user)) throw new Error('inactive');
   return {
     userId: user._id.toString(),
@@ -78,7 +79,17 @@ const authenticate = async (token) => {
     avatar: user.avatar || '',
     role: staffRole(user),
     rating: user.stats?.raceRating ?? 1000,
+    usageOptOut: !!user.usageOptOut,
   };
+};
+
+// Room actions counted for usage statistics.
+const USAGE_ACTIONS = { create: 'created', join: 'joined', queue: 'joined' };
+
+// Behind one proxy (Render), the last forwarded address is the client's, as Express's 'trust proxy' 1 reads it.
+const socketIp = (req) => {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return forwarded.at(-1) || req.socket?.remoteAddress || 'unknown';
 };
 
 /**
@@ -101,8 +112,10 @@ export const attachRaceSocket = (server, isAllowedOrigin) => {
     verifyClient: ({ origin }) => !!origin && isAllowedOrigin(origin),
   });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
     let user = null;
+    let usageId = null;
+    const ip = socketIp(req);
     let windowStart = Date.now();
     let count = 0;
 
@@ -131,6 +144,7 @@ export const attachRaceSocket = (server, isAllowedOrigin) => {
           return ws.close(4003, 'auth failed');
         }
         clearTimeout(authTimer);
+        usageId = typeof msg.usageId === 'string' ? msg.usageId : null;
         if (!connect(user, ws)) {
           user = null;
           return ws.close(4008, 'too many connections');
@@ -145,6 +159,9 @@ export const attachRaceSocket = (server, isAllowedOrigin) => {
       }
       try {
         await handleMessage(user, msg);
+        if (USAGE_ACTIONS[msg.type] && usageId) {
+          void recordUsage({ visitorId: usageId, ip, user, key: 'race.live', dims: { action: USAGE_ACTIONS[msg.type] } });
+        }
       } catch (err) {
         console.error('[race] message failed', msg.type, err?.message);
       }

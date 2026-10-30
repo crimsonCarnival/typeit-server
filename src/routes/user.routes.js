@@ -23,6 +23,7 @@ router.delete('/account', auth, rateLimit({ windowMs: 60 * 60 * 1000, max: 5, pe
 router.post('/account/username', auth, rateLimit({ windowMs: 60 * 60 * 1000, max: 10, perUser: true }), account.changeUsername);
 router.post('/account/streak-offset', auth, account.setStreakOffset);
 router.post('/account/leaderboard-opt-out', auth, account.optOut);
+router.post('/account/usage-opt-out', auth, rateLimit({ windowMs: 60 * 1000, max: 20, perUser: true }), account.usageOptOut);
 router.post('/account/reset-pbs', auth, rateLimit({ windowMs: 60 * 60 * 1000, max: 5, perUser: true }), account.resetPersonalBests);
 router.get('/blocks', auth, account.listBlocks);
 router.post('/account/reset', auth, rateLimit({ windowMs: 60 * 60 * 1000, max: 5, perUser: true }), userController.resetAccount);

@@ -61,6 +61,8 @@ const userSchema = new Schema(
     streakOffsetSetAt: { type: Date, default: null },
     // Opted out of every leaderboard, for good.
     leaderboardOptOut: { type: Boolean, default: false },
+    // Turned off anonymous usage statistics; the server drops this account's events.
+    usageOptOut: { type: Boolean, default: false },
     // Personal bests only count results after this moment.
     pbResetAt: { type: Date, default: null },
     avatar: {

@@ -1,3 +1,4 @@
+import User from '../models/user.model.js';
 import {
   AccountError,
   changeUsername,
@@ -66,6 +67,10 @@ const accountController = {
   changeUsername: action((req) => changeUsername(req.userId, req.body?.username)),
   setStreakOffset: action((req) => setStreakOffset(req.userId, req.body?.hours)),
   optOut: action((req) => optOutOfLeaderboards(req.userId)),
+  /** POST /api/users/account/usage-opt-out  { optOut: boolean } */
+  usageOptOut: action(async (req) => {
+    await User.updateOne({ _id: req.userId }, { $set: { usageOptOut: req.body?.optOut === true } });
+  }),
   resetPersonalBests: action((req) => resetPersonalBests(req.userId)),
   block: action((req) => block(req.userId, req.params.userId)),
   unblock: action((req) => unblock(req.userId, req.params.userId)),

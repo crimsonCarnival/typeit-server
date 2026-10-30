@@ -21,8 +21,21 @@ import { gameEvents } from '../events/game-events.js';
 import Result from '../models/result.model.js';
 import { clampInt, errorMessage } from '../utils/http.js';
 import { CLIENT_TEXT_MAX, parseGameSettings } from '../utils/validate.js';
+import { record as recordUsage, runUsage } from '../services/usage.service.js';
+import { roomSize } from '../services/race/race-manager.js';
 
 const badRequest = (res, error) => res.status(400).json({ success: false, error });
+
+/**
+ * Usage statistics for a run: counted when its first key arrives, and again when it is finished.
+ * Returns the recorder, so the end can read the run before endGame() changes it.
+ */
+const runCounter = (req, run, phase) => {
+  const usage = runUsage(run, { botWpm: req.body?.botWpm, roomSize: run.raceCode ? roomSize(run.raceCode) : undefined, phase });
+  // A race's finish is an action of its own; every other run marks the start it already counted as finished.
+  const finished = phase === 'finish' && usage.key !== 'race.live';
+  return () => void recordUsage({ visitorId: req.headers?.['x-usage-id'], ip: req.ip, user: req.user ?? null, ...usage, finished });
+};
 
 /** Keeps a guest run in memory so its keys can be streamed and scored. */
 const registerGuest = (state) => {
@@ -166,6 +179,8 @@ const gameController = {
       const { from, keys, elapsedMs, leadMs } = req.body || {};
       const out = await appendKeys(run, { from, keys, elapsedMs, leadMs });
       if (answerAppendFailure(res, out)) return;
+      // The first batch of keys is the run's start; a resent batch conflicts above, so it counts once.
+      if (from === 0 && keys?.length) runCounter(req, run, 'start')();
 
       if (req.user?._id && run.raceCode) {
         gameEvents.emit('run:progress', {
@@ -249,12 +264,16 @@ const gameController = {
       if (from !== undefined) {
         const out = await appendKeys(run, { from, keys, elapsedMs });
         if (answerAppendFailure(res, out)) return;
+        // A run short enough to end before any progress batch starts here.
+        if (from === 0 && keys.length) runCounter(req, run, 'start')();
         run = out.run;
       }
 
       // Practising without saving: score it like a guest run, keep nothing.
       const discard = !!userId && req.body?.discard === true && !run.dailyDate && !run.raceCode && !run.practice;
+      const countFinish = runCounter(req, run, 'finish');
       const results = await endGame(run, { typedText, elapsedMs, userId: discard ? null : userId });
+      countFinish();
       if (discard) {
         // Nothing to resume after a reload: the keys go with the unsaved run.
         await Session.updateOne({ _id: run._id }, { $set: { keys: [], keyCount: 0, startedAt: null, typedText: '' } });
