@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import UsageDay from '../src/models/usage-day.model.js';
 import { USAGE_EVENTS_PER_REQUEST, USAGE_NEW_IDS_PER_IP } from '../src/config/usage.js';
 import { PERMISSION_IDS } from '../src/config/permissions.js';
-import { _resetCap, admitVisitor, hashVisitor, record, recordClientEvents, runUsage, usageKeys } from '../src/services/usage.service.js';
+import { _resetCap, admitVisitor, buckets, compact, hashVisitor, previous, rangeDays, record, recordClientEvents, runUsage, series, summary, tally, usageKeys } from '../src/services/usage.service.js';
 
 const uuid = (n) => `${String(n).padStart(8, '0')}-1111-4111-8111-111111111111`;
 const DAY = Date.UTC(2026, 9, 30, 12);
@@ -138,5 +138,112 @@ describe('browser events', () => {
 
   it('usage.view is a permission an admin can hold', () => {
     assert.ok(PERMISSION_IDS.includes('usage.view'));
+  });
+});
+
+describe('ranges and buckets', () => {
+  const NOW = Date.UTC(2026, 9, 29, 15); // a Thursday
+
+  it('rangeDays covers the range ending today, and the same length before it', () => {
+    const r = rangeDays(7, NOW);
+    assert.deepEqual([r.curStart, r.end, r.prevStart], ['2026-10-23', '2026-10-29', '2026-10-16']);
+    assert.equal(r.days.length, 7);
+  });
+
+  it('weekly buckets run Monday to Sunday, carry start and end, and clip to the range', () => {
+    const b = buckets(90, NOW);
+    assert.equal(b[0].start, rangeDays(90, NOW).curStart);
+    assert.equal(b.at(-1).end, '2026-10-29');
+    assert.equal(b.at(-1).start, '2026-10-26', 'the last bucket starts on Monday');
+    for (const x of b.slice(1)) assert.equal(new Date(`${x.start}T00:00:00Z`).getUTCDay(), 1);
+    assert.equal(b.reduce((n, x) => n + x.days.length, 0), 90);
+    assert.equal(buckets(7, NOW).length, 7, 'shorter ranges are one bucket per day');
+  });
+});
+
+describe('tally', () => {
+  const doc = (day, key, guest = [], user = [], extra = {}) => ({ day, key, times: { guest: guest.length, user: user.length }, finished: { guest: 0, user: 0 }, visitors: { guest, user }, ...extra });
+
+  it('summary union counts a visitor once in all, and once on each side', () => {
+    const t = tally([
+      doc('2026-10-28', 'test.words', ['a', 'b'], []),
+      doc('2026-10-29', 'test.words', ['b'], ['a']), // a signed in on the second day
+    ], ['2026-10-28', '2026-10-29']);
+    assert.deepEqual(t['test.words'], { guests: 2, signedIn: 1, all: 2, times: { guest: 3, user: 1 }, finished: { guest: 0, user: 0 } });
+  });
+
+  it('only counts the days asked for, and adds counts kept from compacted days', () => {
+    const t = tally([
+      doc('2026-10-01', 'page.stats', ['x']),
+      { day: '2026-10-02', key: 'page.stats', times: { guest: 4, user: 0 }, people: { guest: 3, user: 0, all: 3 } },
+    ], ['2026-10-02']);
+    assert.equal(t['page.stats'].all, 3);
+  });
+});
+
+describe('previous period', () => {
+  it('prev is null when the previous period is not fully covered', () => {
+    assert.equal(previous({ all: 4 }, '2026-10-10', '2026-10-01'), null);
+    assert.equal(previous({ all: 4 }, '2026-10-01', '2026-10-01'), 4);
+    assert.equal(previous(undefined, '2026-09-01', '2026-10-01'), 0, 'covered but unused is zero, not unknown');
+    assert.equal(previous(undefined, null, '2026-10-01'), null);
+  });
+});
+
+describe('compaction', () => {
+  afterEach(() => mock.restoreAll());
+
+  it('keeps the counts and drops the sets past 180 days', async () => {
+    const update = mock.method(UsageDay, 'updateMany', async () => ({ modifiedCount: 2 }));
+    await compact(Date.UTC(2026, 9, 30));
+    const [filter, pipeline] = update.mock.calls[0].arguments;
+    assert.deepEqual(filter, { day: { $lt: '2026-05-03' }, visitors: { $exists: true } });
+    assert.ok(pipeline[0].$set.people, 'daily people counts are written');
+    assert.deepEqual(pipeline[1], { $unset: 'visitors' });
+  });
+});
+
+describe('summary and series', () => {
+  afterEach(() => mock.restoreAll());
+  const NOW = Date.UTC(2026, 9, 29, 15);
+  const fake = (docs, first) => {
+    mock.method(UsageDay, 'find', () => ({ select: () => ({ lean: async () => docs }) }));
+    mock.method(UsageDay, 'aggregate', async () => Object.entries(first).map(([_id, f]) => ({ _id, first: f })));
+  };
+  const day = (d, key, guest, user = []) => ({ day: d, key, times: { guest: guest.length, user: user.length }, finished: { guest: 0, user: 0 }, visitors: { guest, user } });
+
+  it('rows carry people, the previous period only when covered, and every detail', async () => {
+    fake([
+      day('2026-10-28', 'test.words', ['a', 'b']),
+      day('2026-10-20', 'test.words', ['a']),
+      day('2026-10-28', 'test.code', ['c']),
+      day('2026-10-28', 'test.words.time=30', ['a']),
+    ], { 'test.words': '2026-01-01', 'test.code': '2026-10-27', 'test.words.time=30': '2026-01-01' });
+    const out = await summary({ range: 7, now: NOW });
+    const words = out.rows.find((r) => r.key === 'test.words');
+    const code = out.rows.find((r) => r.key === 'test.code');
+    assert.equal(words.people, 2);
+    assert.equal(words.prev, 1);
+    assert.equal(code.prev, null, 'code was first seen inside the range');
+    assert.equal(code.firstSeen, '2026-10-27');
+    const byTime = words.children.find((c) => c.dim === 'time');
+    assert.equal(byTime.rows.find((r) => r.key === 'test.words.time=30').people, 1);
+    assert.equal(out.rows.find((r) => r.key === 'daily').account, true);
+  });
+
+  it('who=guests counts only guests', async () => {
+    fake([day('2026-10-28', 'page.rankings', ['a'], ['b', 'c'])], { 'page.rankings': '2026-01-01' });
+    const out = await summary({ range: 7, who: 'guests', now: NOW });
+    const row = out.rows.find((r) => r.key === 'page.rankings');
+    assert.equal(row.people, 1);
+    assert.equal(row.times, 1);
+  });
+
+  it('series lines are null before a key was first seen and labelled for people', async () => {
+    fake([day('2026-10-28', 'test.words.time=30', ['a'])], { 'test.words.time=30': '2026-10-27' });
+    const out = await series({ keys: ['test.words.time=30'], range: 7, now: NOW });
+    assert.equal(out.buckets.length, 7);
+    assert.equal(out.lines[0].label, 'Words test · 30s');
+    assert.deepEqual(out.lines[0].data, [null, null, null, null, 0, 1, 0]);
   });
 });

@@ -3,6 +3,8 @@ import adminController from '../controllers/admin.controller.js';
 import moderation from '../controllers/admin-moderation.controller.js';
 import { auth, requirePermission } from '../middleware/auth.middleware.js';
 import { requireObjectIdParam } from '../middleware/params.middleware.js';
+import { USAGE_RANGES } from '../config/usage.js';
+import { series, seriesKeys, summary } from '../services/usage.service.js';
 
 const router = express.Router();
 
@@ -43,5 +45,29 @@ router.post('/changelog/refresh', can(), moderation.refreshChangelog);
 
 // Audit log
 router.get('/audit', can('audit.view'), moderation.audit);
+
+// Usage statistics: ?range=7|30|90 &who=all|guests|signed-in
+const usageQuery = (req) => ({
+  range: USAGE_RANGES.includes(Number(req.query.range)) ? Number(req.query.range) : 30,
+  who: ['all', 'guests', 'signed-in'].includes(req.query.who) ? req.query.who : 'all',
+});
+router.get('/usage/summary', can('usage.view'), async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await summary(usageQuery(req)) });
+  } catch (err) {
+    next(err);
+  }
+});
+// &keys=k1,k2 (up to 5 features or details)
+router.get('/usage/series', can('usage.view'), async (req, res, next) => {
+  try {
+    const valid = seriesKeys();
+    const keys = [...new Set(String(req.query.keys || '').split(','))].filter((k) => valid.has(k)).slice(0, 5);
+    if (!keys.length) return res.status(400).json({ success: false, error: 'Pick at least one feature' });
+    res.json({ success: true, data: await series({ ...usageQuery(req), keys }) });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;

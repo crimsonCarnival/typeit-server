@@ -19,6 +19,8 @@ export const BOT_SPEEDS = Object.freeze([40, 60, 80, 100]);
 
 const LENGTHS = ['10', '25', '50', '75', '100'];
 const TIMES = ['15', '30', '60', '90', '120'];
+const LENGTH_LABELS = Object.fromEntries(LENGTHS.map((n) => [n, `${n} words`]));
+const TIME_LABELS = Object.fromEntries(TIMES.map((t) => [t, `${t}s`]));
 
 /**
  * @typedef {{ label: string, values: string[], labels?: Record<string, string> }} UsageDim
@@ -31,8 +33,8 @@ export const USAGE_CATALOGUE = Object.freeze([
   {
     key: 'test.words', group: 'tests', label: 'Words test', finish: true,
     dims: {
-      words: { label: 'By word count', values: LENGTHS },
-      time: { label: 'By time limit', values: TIMES },
+      words: { label: 'By word count', values: LENGTHS, labels: LENGTH_LABELS },
+      time: { label: 'By time limit', values: TIMES, labels: TIME_LABELS },
       language: { label: 'By language', values: [...WORD_LANGUAGES] },
       modifiers: { label: 'By modifiers', values: ['none', 'punctuation', 'numbers', 'both'] },
     },
@@ -45,7 +47,7 @@ export const USAGE_CATALOGUE = Object.freeze([
     key: 'test.code', group: 'tests', label: 'Code test', finish: true,
     dims: {
       language: { label: 'By language', values: [...CODE_LANGUAGES] },
-      time: { label: 'By time limit', values: TIMES },
+      time: { label: 'By time limit', values: TIMES, labels: TIME_LABELS },
     },
   },
   {
