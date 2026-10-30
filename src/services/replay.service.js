@@ -34,12 +34,12 @@ const hasLog = (r) => !!r && typeof r.text === 'string' && Array.isArray(r.keyst
 
 /**
  * A run's replay: the text and its keystroke log under the run's rules.
- * Players can always watch their own runs; other players' runs only when
- * they were ranked (competitive runs are public, practice stays private).
+ * Every run with a keystroke log is public, ranked or practice, to anyone
+ * who has its id, unless its player's account is no longer active.
  *
  * @returns {Promise<object|null>} null when not found, not visible or without a log
  */
-export const getReplay = async (resultId, viewerId = null) => {
+export const getReplay = async (resultId) => {
   const r = await Result.findById(resultId)
     .select(REPLAY_FIELDS)
     .populate('userId', 'username displayName avatar status')
