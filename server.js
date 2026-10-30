@@ -22,8 +22,12 @@ app.disable('x-powered-by');
 app.use(securityHeaders);
 
 // Allow an explicit allowlist via CORS_ORIGINS; otherwise default to local dev
-// origins (localhost on any port + dev tunnels).
-const defaultOrigins = [/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/, /\.devtunnels\.ms$/];
+// origins (localhost on any port + dev tunnels). Production never falls back:
+// anyone can open a dev tunnel, so without CORS_ORIGINS no origin is allowed.
+const defaultOrigins = NODE_ENV === 'production' ? [] : [/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/, /\.devtunnels\.ms$/];
+if (NODE_ENV === 'production' && CORS_ORIGINS.length === 0) {
+  console.warn('[cors] CORS_ORIGINS is not set: browsers on other origins (and the race socket) will be refused.');
+}
 const isAllowedOrigin = (origin) =>
   CORS_ORIGINS.length > 0
     ? CORS_ORIGINS.includes(origin)
