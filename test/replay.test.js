@@ -43,6 +43,13 @@ describe('getReplay', () => {
     assert.equal(r.text, 'abc def');
   });
 
+  it('never shows an email used as a name', async () => {
+    stubFind(stored({ userId: { _id: owner, username: 'ann@mail.com', displayName: 'ann@mail.com', status: 'active' } }));
+    const r = await getReplay('x');
+    assert.doesNotMatch(r.player.username, /@/);
+    assert.doesNotMatch(r.player.displayName, /@/);
+  });
+
   it('shows anyone unranked runs (public replays)', async () => {
     stubFind(stored({ ranked: false }));
     const r = await getReplay('x', null);

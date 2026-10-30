@@ -3,6 +3,7 @@ import DailyAttempt from '../models/daily-attempt.model.js';
 import { replayRun } from './run-engine.js';
 import { startPracticeSession } from './game.service.js';
 import { dateKey, getOrCreateChallenge } from './daily.service.js';
+import { publicHandle, publicName } from '../utils/public-identity.js';
 
 /** Fields a replay needs, plus the summary shown beside it. */
 const REPLAY_FIELDS =
@@ -50,8 +51,8 @@ export const getReplay = async (resultId) => {
   const player = r.userId
     ? {
         userId: String(r.userId._id),
-        username: r.userId.username,
-        displayName: r.userId.displayName || r.userId.username,
+        username: publicHandle(r.userId),
+        displayName: publicName(r.userId),
         avatar: r.userId.avatar || '',
       }
     : {
@@ -152,7 +153,7 @@ export const startDailyGhostRun = async (userId, date, now = new Date(), target 
     state,
     ghost: {
       kind: target === 'pb' ? 'pb' : 'daily',
-      label: target === 'pb' ? `PB · ${attempt.wpm} WPM` : `${attempt.userId.displayName || attempt.userId.username} · ${attempt.wpm} WPM`,
+      label: target === 'pb' ? `PB · ${attempt.wpm} WPM` : `${publicName(attempt.userId)} · ${attempt.wpm} WPM`,
       resultId: String(attempt.resultId),
       wpm: attempt.wpm,
       timeline,
