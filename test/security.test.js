@@ -26,6 +26,7 @@ describe('account validation', () => {
     assert.ok(checkPassword('short'));
     assert.ok(checkPassword('x'.repeat(73)));
     assert.ok(checkAvatar('javascript:alert(1)'));
+    assert.ok(checkAvatar('http://example.com/a.png'), 'plain http is mixed content');
     assert.ok(checkTimezone('Mars/Olympus'));
   });
 });
