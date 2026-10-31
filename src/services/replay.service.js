@@ -8,7 +8,7 @@ import { publicHandle, publicName } from '../utils/public-identity.js';
 /** Fields a replay needs, plus the summary shown beside it. */
 const REPLAY_FIELDS =
   'userId text keystrokes rules leadMs timeMax gameMode wordCount modifiers wpm rawWpm accuracy consistency ' +
-  'performance ranked dailyDate createdAt';
+  'performance ranked dailyDate practiceKind practiceId createdAt';
 
 /**
  * Cursor positions over time for a ghost: [[ms from the run's start, chars
@@ -49,8 +49,10 @@ export const getReplay = async (resultId, viewerId = null, now = new Date()) => 
     .lean();
   if (!hasLog(r)) return null;
   if (r.userId && r.userId.status && r.userId.status !== 'active') return null;
-  if (r.dailyDate && r.dailyDate >= dateKey(now) && String(r.userId?._id ?? '') !== String(viewerId ?? '-')) {
-    const mine = viewerId ? await DailyAttempt.findOne({ userId: viewerId, date: r.dailyDate }).select('finishedAt').lean() : null;
+  // Ghost runs on a daily text (startDailyGhostRun) carry the text too, under practiceId.
+  const textDate = r.dailyDate || (r.practiceKind === 'ghost' ? r.practiceId : null);
+  if (textDate && textDate >= dateKey(now) && String(r.userId?._id ?? '') !== String(viewerId ?? '-')) {
+    const mine = viewerId ? await DailyAttempt.findOne({ userId: viewerId, date: textDate }).select('finishedAt').lean() : null;
     if (!mine?.finishedAt) return { status: 403, error: "Finish today's challenge first" };
   }
 

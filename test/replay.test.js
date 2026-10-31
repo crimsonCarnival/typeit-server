@@ -87,6 +87,12 @@ describe('getReplay', () => {
       assert.equal((await getReplay('x', owner, now)).text, 'abc def');
     });
 
+    it('also covers ghost runs on its text, which are saved as practice', async () => {
+      stubFind(stored({ dailyDate: null, ranked: false, practiceKind: 'ghost', practiceId: '2026-10-28' }));
+      myAttempt(undefined);
+      assert.equal((await getReplay('x', viewer, now)).status, 403);
+    });
+
     it('past days are public', async () => {
       stubFind(stored({ dailyDate: '2026-10-27' }));
       assert.equal((await getReplay('x', null, now)).dailyDate, '2026-10-27');
