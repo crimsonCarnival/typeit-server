@@ -43,6 +43,13 @@ describe('getReplay', () => {
     assert.equal(r.text, 'abc def');
   });
 
+  it('never shows an email used as a name', async () => {
+    stubFind(stored({ userId: { _id: owner, username: 'ann@mail.com', displayName: 'ann@mail.com', status: 'active' } }));
+    const r = await getReplay('x');
+    assert.doesNotMatch(r.player.username, /@/);
+    assert.doesNotMatch(r.player.displayName, /@/);
+  });
+
   it('shows anyone unranked runs (public replays)', async () => {
     stubFind(stored({ ranked: false }));
     const r = await getReplay('x', null);
@@ -50,11 +57,46 @@ describe('getReplay', () => {
     assert.equal(r.ranked, false);
   });
 
-  it("shows daily replays publicly", async () => {
-    stubFind(stored({ dailyDate: new Date().toISOString().slice(0, 10) }));
-    const r = await getReplay('x', null);
-    assert.ok(r);
-    assert.equal(r.dailyDate, new Date().toISOString().slice(0, 10));
+  describe("today's daily", () => {
+    const now = new Date('2026-10-28T12:00:00Z');
+    const viewer = new mongoose.Types.ObjectId();
+    const myAttempt = (finishedAt) =>
+      mock.method(DailyAttempt, 'findOne', () => ({ select: () => ({ lean: async () => (finishedAt === undefined ? null : { finishedAt }) }) }));
+
+    it('is hidden from guests, who cannot have finished it', async () => {
+      stubFind(stored({ dailyDate: '2026-10-28' }));
+      const r = await getReplay('x', null, now);
+      assert.equal(r.status, 403);
+      assert.equal(r.text, undefined, 'the text is not given away');
+    });
+
+    it('is hidden from players who have not finished their own attempt', async () => {
+      stubFind(stored({ dailyDate: '2026-10-28' }));
+      myAttempt(undefined);
+      assert.equal((await getReplay('x', viewer, now)).status, 403, 'not started');
+      myAttempt(null);
+      assert.equal((await getReplay('x', viewer, now)).status, 403, 'started, not finished');
+    });
+
+    it('is shown to players who finished, and to the run\'s own player', async () => {
+      stubFind(stored({ dailyDate: '2026-10-28' }));
+      myAttempt(new Date(now));
+      assert.equal((await getReplay('x', viewer, now)).text, 'abc def');
+      mock.restoreAll();
+      stubFind(stored({ dailyDate: '2026-10-28' }));
+      assert.equal((await getReplay('x', owner, now)).text, 'abc def');
+    });
+
+    it('also covers ghost runs on its text, which are saved as practice', async () => {
+      stubFind(stored({ dailyDate: null, ranked: false, practiceKind: 'ghost', practiceId: '2026-10-28' }));
+      myAttempt(undefined);
+      assert.equal((await getReplay('x', viewer, now)).status, 403);
+    });
+
+    it('past days are public', async () => {
+      stubFind(stored({ dailyDate: '2026-10-27' }));
+      assert.equal((await getReplay('x', null, now)).dailyDate, '2026-10-27');
+    });
   });
 
   it('has nothing to show without a keystroke log', async () => {

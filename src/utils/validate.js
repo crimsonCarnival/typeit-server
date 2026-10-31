@@ -46,13 +46,13 @@ export const checkOptionalString = (value, name, max) => {
   return null;
 };
 
-/** Avatar must be an http(s) URL (or empty to clear it). */
+/** Avatar must be an https URL (or empty to clear it): the site is served over https, so http images are mixed content. */
 export const checkAvatar = (value) => {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'string' || value.length > 500) return 'Avatar must be a URL';
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? null : 'Avatar must be an http(s) URL';
+    return url.protocol === 'https:' ? null : 'Avatar must be an https URL';
   } catch {
     return 'Avatar must be a URL';
   }

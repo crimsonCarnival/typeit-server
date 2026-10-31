@@ -17,6 +17,7 @@ import {
   setStreakOffset,
   unlinkGoogle,
   checkCanLinkGoogle,
+  confirmIdentity,
 } from '../src/services/account-security.service.js';
 import { GoogleAuthError, checkIdentity, clientReturnUrl, completeGoogle, linkWithTicket, readState, reauthValid } from '../src/services/google-auth.service.js';
 
@@ -91,6 +92,21 @@ describe('passwords and email', () => {
     assert.equal(doc.email, 'new@example.com');
     mock.method(User, 'exists', async () => ({ _id: 1 }));
     await assert.rejects(setEmail(id(), { password: 'pw-123456', email: 'taken@x.co' }), /already/);
+  });
+
+  it('wiping or deleting the account needs the password, or a fresh Google confirmation without one', async () => {
+    await account('pw-123456');
+    await assert.rejects(confirmIdentity(id(), {}), (e) => e instanceof AccountError && e.status === 403);
+    await assert.rejects(confirmIdentity(id(), { password: 'wrong' }), /wrong/);
+    await confirmIdentity(id(), { password: 'pw-123456' });
+
+    mock.restoreAll();
+    const userId = id();
+    (await account(null))._id = userId;
+    await assert.rejects(confirmIdentity(userId, { password: 'anything' }), /Confirm with Google/);
+    const other = jwt.sign({ u: id() }, JWT_SECRET, { audience: 'typeit:google-reauth' });
+    await assert.rejects(confirmIdentity(userId, { reauth: other }), /Confirm with Google/, 'a ticket for someone else');
+    await confirmIdentity(userId, { reauth: jwt.sign({ u: userId }, JWT_SECRET, { audience: 'typeit:google-reauth' }) });
   });
 
   it('Google cannot be unlinked from an account with no password (it would be locked out)', async () => {

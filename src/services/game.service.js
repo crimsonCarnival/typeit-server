@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { generateWordContent } from '../data/words.js';
 import { awardXp } from './xp.service.js';
 import { xpForRun } from '../config/levels.js';
@@ -47,11 +48,10 @@ const stripPunctuation = (text) => {
   return text.replace(/[?.,;:'"!()\-_]/g, '');
 };
 /**
- * Generates a unique session ID
+ * Generates a unique session ID. A guest's run is found by this id alone, so
+ * it must not be guessable (Math.random and a timestamp are).
  */
-export const generateSessionId = () => {
-  return `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-};
+export const generateSessionId = () => `game_${crypto.randomUUID()}`;
 
 /**
  * Checks the run duration a client reports when finishing. It is bounded by

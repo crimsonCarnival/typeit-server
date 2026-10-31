@@ -28,12 +28,13 @@ router.get('/ghost/pb', auth, async (req, res) => {
 
 /**
  * GET /api/replays/:resultId
- * The keystroke log of a run to play back: your own runs, or anyone's ranked run.
+ * The keystroke log of a run to play back (public, except today's daily: see getReplay).
  */
 router.get('/:resultId', optionalAuth, async (req, res) => {
   try {
     const replay = await getReplay(req.params.resultId, req.user?._id ?? null);
     if (!replay) return res.status(404).json({ success: false, error: 'Replay not found' });
+    if (replay.error) return res.status(replay.status).json({ success: false, error: replay.error });
     res.json({ success: true, data: replay });
   } catch (error) {
     res.status(500).json({ success: false, error: errorMessage(error) });

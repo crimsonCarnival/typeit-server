@@ -3,11 +3,12 @@ import DailyAttempt from '../models/daily-attempt.model.js';
 import { replayRun } from './run-engine.js';
 import { startPracticeSession } from './game.service.js';
 import { dateKey, getOrCreateChallenge } from './daily.service.js';
+import { publicHandle, publicName } from '../utils/public-identity.js';
 
 /** Fields a replay needs, plus the summary shown beside it. */
 const REPLAY_FIELDS =
   'userId text keystrokes rules leadMs timeMax gameMode wordCount modifiers wpm rawWpm accuracy consistency ' +
-  'performance ranked dailyDate createdAt';
+  'performance ranked dailyDate practiceKind practiceId createdAt';
 
 /**
  * Cursor positions over time for a ghost: [[ms from the run's start, chars
@@ -34,24 +35,32 @@ const hasLog = (r) => !!r && typeof r.text === 'string' && Array.isArray(r.keyst
 
 /**
  * A run's replay: the text and its keystroke log under the run's rules.
- * Players can always watch their own runs; other players' runs only when
- * they were ranked (competitive runs are public, practice stays private).
+ * Every run with a keystroke log is public, ranked or practice, to anyone
+ * who has its id, unless its player's account is no longer active. The one
+ * exception is today's daily challenge: its replays would give the text away,
+ * so they stay hidden until the viewer has finished their own attempt.
  *
- * @returns {Promise<object|null>} null when not found, not visible or without a log
+ * @returns {Promise<object|null|{ error: string, status: number }>} null when not found or without a log
  */
-export const getReplay = async (resultId, viewerId = null) => {
+export const getReplay = async (resultId, viewerId = null, now = new Date()) => {
   const r = await Result.findById(resultId)
     .select(REPLAY_FIELDS)
     .populate('userId', 'username displayName avatar status')
     .lean();
   if (!hasLog(r)) return null;
   if (r.userId && r.userId.status && r.userId.status !== 'active') return null;
+  // Ghost runs on a daily text (startDailyGhostRun) carry the text too, under practiceId.
+  const textDate = r.dailyDate || (r.practiceKind === 'ghost' ? r.practiceId : null);
+  if (textDate && textDate >= dateKey(now) && String(r.userId?._id ?? '') !== String(viewerId ?? '-')) {
+    const mine = viewerId ? await DailyAttempt.findOne({ userId: viewerId, date: textDate }).select('finishedAt').lean() : null;
+    if (!mine?.finishedAt) return { status: 403, error: "Finish today's challenge first" };
+  }
 
   const player = r.userId
     ? {
         userId: String(r.userId._id),
-        username: r.userId.username,
-        displayName: r.userId.displayName || r.userId.username,
+        username: publicHandle(r.userId),
+        displayName: publicName(r.userId),
         avatar: r.userId.avatar || '',
       }
     : {
@@ -152,7 +161,7 @@ export const startDailyGhostRun = async (userId, date, now = new Date(), target 
     state,
     ghost: {
       kind: target === 'pb' ? 'pb' : 'daily',
-      label: target === 'pb' ? `PB · ${attempt.wpm} WPM` : `${attempt.userId.displayName || attempt.userId.username} · ${attempt.wpm} WPM`,
+      label: target === 'pb' ? `PB · ${attempt.wpm} WPM` : `${publicName(attempt.userId)} · ${attempt.wpm} WPM`,
       resultId: String(attempt.resultId),
       wpm: attempt.wpm,
       timeline,

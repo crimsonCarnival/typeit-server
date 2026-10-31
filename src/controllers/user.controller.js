@@ -16,7 +16,7 @@ import { checkAvatar, checkOptionalString, checkTimezone, checkUsername, parseSe
 import User from '../models/user.model.js';
 import { getTestOutcomes } from '../services/test-outcomes.service.js';
 import { getProfileOverview } from '../services/stats.service.js';
-import { AccountError, changeUsername } from '../services/account-security.service.js';
+import { AccountError, changeUsername, confirmIdentity } from '../services/account-security.service.js';
 
 /** Whether the request names the signed-in player's own username, case-sensitively. */
 const confirmedBy = async (req) => {
@@ -171,8 +171,10 @@ const userController = {
    */
   deleteAccount: async (req, res) => {
     try {
-      // Typing the username is the guard against a stray request or a mis-click.
+      // Typing the username is the guard against a stray request or a mis-click;
+      // the password (or Google) against someone holding a stolen session.
       if (!(await confirmedBy(req))) return res.status(400).json({ success: false, error: 'Type your username to confirm' });
+      await confirmIdentity(req.userId, { password: req.body?.password, reauth: req.body?.reauth });
       const deleted = await deleteAccount(req.userId);
 
       res.json({
@@ -180,6 +182,7 @@ const userController = {
         data: { deleted },
       });
     } catch (error) {
+      if (error instanceof AccountError) return res.status(error.status).json({ success: false, error: error.message });
       res.status(500).json({
         success: false,
         error: errorMessage(error),
@@ -189,13 +192,15 @@ const userController = {
 
   /**
    * Wipes the signed-in player's progress, keeping the account
-   * POST /api/users/account/reset  { confirm: <username> }
+   * POST /api/users/account/reset  { confirm: <username>, password | reauth }
    */
   resetAccount: async (req, res) => {
     try {
       if (!(await confirmedBy(req))) return res.status(400).json({ success: false, error: 'Type your username to confirm' });
+      await confirmIdentity(req.userId, { password: req.body?.password, reauth: req.body?.reauth });
       res.json({ success: true, data: { reset: await resetAccount(req.userId) } });
     } catch (error) {
+      if (error instanceof AccountError) return res.status(error.status).json({ success: false, error: error.message });
       res.status(500).json({ success: false, error: errorMessage(error) });
     }
   },
