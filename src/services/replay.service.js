@@ -36,17 +36,23 @@ const hasLog = (r) => !!r && typeof r.text === 'string' && Array.isArray(r.keyst
 /**
  * A run's replay: the text and its keystroke log under the run's rules.
  * Every run with a keystroke log is public, ranked or practice, to anyone
- * who has its id, unless its player's account is no longer active.
+ * who has its id, unless its player's account is no longer active. The one
+ * exception is today's daily challenge: its replays would give the text away,
+ * so they stay hidden until the viewer has finished their own attempt.
  *
- * @returns {Promise<object|null>} null when not found, not visible or without a log
+ * @returns {Promise<object|null|{ error: string, status: number }>} null when not found or without a log
  */
-export const getReplay = async (resultId) => {
+export const getReplay = async (resultId, viewerId = null, now = new Date()) => {
   const r = await Result.findById(resultId)
     .select(REPLAY_FIELDS)
     .populate('userId', 'username displayName avatar status')
     .lean();
   if (!hasLog(r)) return null;
   if (r.userId && r.userId.status && r.userId.status !== 'active') return null;
+  if (r.dailyDate && r.dailyDate >= dateKey(now) && String(r.userId?._id ?? '') !== String(viewerId ?? '-')) {
+    const mine = viewerId ? await DailyAttempt.findOne({ userId: viewerId, date: r.dailyDate }).select('finishedAt').lean() : null;
+    if (!mine?.finishedAt) return { status: 403, error: "Finish today's challenge first" };
+  }
 
   const player = r.userId
     ? {

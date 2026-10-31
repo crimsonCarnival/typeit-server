@@ -1,5 +1,5 @@
 import express from 'express';
-import { auth } from '../middleware/auth.middleware.js';
+import { auth, optionalAuth } from '../middleware/auth.middleware.js';
 import { requireObjectIdParam } from '../middleware/params.middleware.js';
 import { getPbGhost, getReplay } from '../services/replay.service.js';
 import { GAME_MODES, TIME_MAX_MAX, TIME_MAX_MIN } from '../utils/validate.js';
@@ -28,12 +28,13 @@ router.get('/ghost/pb', auth, async (req, res) => {
 
 /**
  * GET /api/replays/:resultId
- * The keystroke log of a run to play back (public, see getReplay).
+ * The keystroke log of a run to play back (public, except today's daily: see getReplay).
  */
-router.get('/:resultId', async (req, res) => {
+router.get('/:resultId', optionalAuth, async (req, res) => {
   try {
-    const replay = await getReplay(req.params.resultId);
+    const replay = await getReplay(req.params.resultId, req.user?._id ?? null);
     if (!replay) return res.status(404).json({ success: false, error: 'Replay not found' });
+    if (replay.error) return res.status(replay.status).json({ success: false, error: replay.error });
     res.json({ success: true, data: replay });
   } catch (error) {
     res.status(500).json({ success: false, error: errorMessage(error) });
